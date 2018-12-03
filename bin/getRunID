@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+zcat $1 | head -n 3 | grep "^@" | sed 's/@//g' | awk -F ":" '{print $1"_"$2"_"$3}'

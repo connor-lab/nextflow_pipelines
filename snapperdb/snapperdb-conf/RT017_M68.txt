@@ -1,0 +1,13 @@
+snpdb_name rt017_m68
+reference_genome RT017_M68
+pg_uname snapperdb
+pg_pword M2ZkMDJjNDVjY2NiNmQgIFJFQUR
+pg_host localhost
+depth_cutoff 10
+mq_cutoff 30
+ad_cutoff 0.9
+average_depth_cutoff 30
+mapper minimap2
+mapper_threads 4
+variant_caller gatk
+variant_caller_threads 4
