@@ -123,17 +123,20 @@ params.flurefPA = '{{ flu_ref_dir }}/{{ flu_ref_prefix }}.PA.fa'
 
 // ## *** WCMTB PIPELINE CONFIG *** ##
 
+// Transfer username
+transferuser = '{{ remote_wcmtb_username }}'
+
 // Path to private SSH key for user/server
 params.wcmtbkey = '{{ remote_wcmtb_ssh_privkey_path }}'
 
 // Username for remote WCMTB server
-params.wcmtbuser = '{{ remote_wcmtb_username }}'
+params.wcmtbuser = "${transferuser}"
 
 // Hostname / IP address of remote WCMTB server
 params.wcmtbserver = '{{ remote_wcmtb_address }}'
 
 // Path to upload directory for WCM TB reads 
-params.wcmtbpath = '{{ remote_wcmtb_data_path }}'
+params.wcmtbpath = "{{ remote_wcmtb_data_path }}"
 
 
 // Panel to use for TB geno and resistance typing, choose from bradley-2015 or walker-2015

@@ -351,6 +351,7 @@ HIVTrimmedReads = TrimmedReadsHIV.filter { it[1] == 'hiv' }
 Date date = new Date()
 YearMonth = date.format( "yyyy/MM-MMM" )
 
+
 // Make reports directory if it doesn't exist
 ReportsDir = file("/mnt/datastore/hiv/reports/${YearMonth}")
 mkdirResult = ReportsDir.mkdirs()
@@ -811,19 +812,40 @@ process CollectFailedFLUAssemblies {
 // Setup WCM trimmed reads channel
 WCMTBTrimmedReads = TrimmedReadsWCMTB.filter { it[1] == 'wcmtb' || it[1] == 'wcmid' }
 
-WCMTBTrimmedReads.into{ WCMTBTrimmedReadsMD5; WCMTrimmedReadsTyping }
+WCMTBTrimmedReads.into{ WCMTBTrimmedReadsMD5; WCMTrimmedReadsTyping; WCMMakeUploadDir }
+
+mykrobepanel = params.mykrobepanel
+
+
+Date day = new Date()
+YearMonthDay = day.format( "yyyy-MM-dd" )
+
+shortRunID = RunID.tokenize("_")[0, 1].join("_")
 
 sshkey = "${params.wcmtbkey}"
 endserver = "${params.wcmtbserver}"
 user = "${params.wcmtbuser}"
-endpath = "${params.wcmtbpath}/${YearMonth}/"
+endpath = "${params.wcmtbpath}/${YearMonthDay}-${shortRunID}"
 
 
-createdirectory ="ssh -i ${sshkey} ${user}@${endserver} mkdir -p ${endpath}/"
-createdirectory.execute()
+
+process makeUploadDir {
+    tag { RunID }
+
+    executor 'local'
+
+    input:
+    set dataset_id, project, file(forward), file(reverse) from WCMMakeUploadDir.first()
+
+    exec:
+    createfqdirectory ="ssh -i ${sshkey} ${user}@${endserver} mkdir -p ${endpath}/fastq"
+    createfqdirectory.execute()
+
+    createrepdirectory ="ssh -i ${sshkey} ${user}@${endserver} mkdir -p ${endpath}/reports"
+    createrepdirectory.execute()
+}
 
 
-mykrobepanel = params.mykrobepanel
 
 process typingMykrobeWCM {
     tag { dataset_id }
@@ -852,7 +874,7 @@ process typingMykrobeWCM {
 }
 
 
-process WCMTBGenerateMD5 {
+process WCMGenerateMD5 {
     tag { dataset_id }
 
     cpus 1
@@ -861,19 +883,21 @@ process WCMTBGenerateMD5 {
     set dataset_id, project, file(forward), file(reverse) from WCMTBTrimmedReadsMD5
 
     output:
-    set dataset_id, file("*_1.qc.md5.txt"), file("*_2.qc.md5.txt") into MD5s
+    set file("*_1.qc.md5.txt"), file("*_2.qc.md5.txt") into MD5s
     set dataset_id, file("*_1.fq.gz"), file("*_2.fq.gz") into UploadReads
 
     script:
+       accession = dataset_id.tokenize("_")[0].tokenize("-")[1]
+       shortRunID = RunID.tokenize("_")[0, 1].join("_")
        """
-       mv $forward ${RunID}_${dataset_id}_1.fq.gz
-       mv $reverse ${RunID}_${dataset_id}_2.fq.gz
-       md5sum ${RunID}_${dataset_id}_1.fq.gz > ${RunID}_${dataset_id}_1.qc.md5.txt
-       md5sum ${RunID}_${dataset_id}_2.fq.gz > ${RunID}_${dataset_id}_2.qc.md5.txt
+       mv $forward ${accession}!${accession}-${shortRunID}_1.fq.gz
+       mv $reverse ${accession}!${accession}-${shortRunID}_2.fq.gz
+       md5sum ${accession}!${accession}-${shortRunID}_1.fq.gz > ${accession}!${accession}-${shortRunID}_1.qc.md5.txt
+       md5sum ${accession}!${accession}-${shortRunID}_2.fq.gz > ${accession}!${accession}-${shortRunID}_2.qc.md5.txt
        """
 }
 
-process WCMTBUploadFiles {
+process WCMUploadFiles {
     tag { dataset_id }
     
     cpus 1
@@ -887,16 +911,16 @@ process WCMTBUploadFiles {
 
     input:
     set dataset_id, file(forward), file(reverse) from UploadReads
-    set mddataset_id, file(forwardmd5), file(reversemd5) from MD5s
+    set file(forwardmd5), file(reversemd5) from MD5s
       
     script:
       """
-      scp -i ${sshkey} $forward ${user}@${endserver}:${endpath}
-      scp -i ${sshkey} $forwardmd5 ${user}@${endserver}:${endpath}
-      scp -i ${sshkey} $reverse ${user}@${endserver}:${endpath}
-      scp -i ${sshkey} $reversemd5 ${user}@${endserver}:${endpath}
-      ssh -i ${sshkey} ${user}@${endserver} \"cd ${endpath}; md5sum -c ${forwardmd5}\"
-      ssh -i ${sshkey} ${user}@${endserver} \"cd ${endpath}; md5sum -c ${reversemd5}\"
+      scp -i ${sshkey} $forward ${user}@${endserver}:${endpath}/fastq
+      scp -i ${sshkey} $forwardmd5 ${user}@${endserver}:${endpath}/fastq
+      scp -i ${sshkey} $reverse ${user}@${endserver}:${endpath}/fastq
+      scp -i ${sshkey} $reversemd5 ${user}@${endserver}:${endpath}/fastq
+      ssh -i ${sshkey} ${user}@${endserver} \"cd ${endpath}/fastq; md5sum -c ${forwardmd5}\"
+      ssh -i ${sshkey} ${user}@${endserver} \"cd ${endpath}/fastq; md5sum -c ${reversemd5}\"
       """
 }
 
@@ -967,7 +991,7 @@ process annotateProkka {
     cpus 5
 
     input:
-    set dataset_id, project, file(assembly) from ProkkaAssembly
+    set dataset_id, project, file(assembly) from ProkkaAssembly.filter{ it[2].size()>1000 }
 
     output:
     file("${dataset_id}/${dataset_id}.*")
@@ -1108,7 +1132,7 @@ process annotateProkkaDIGCD {
     cpus 4
 
     input:
-    set dataset_id, project, file(assembly) from prokkaAssemblyDIGCD
+    set dataset_id, project, file(assembly) from prokkaAssemblyDIGCD.filter{ it[2].size()>1000 }
 
     output:
     file("${dataset_id}/${dataset_id}.*")
@@ -1132,7 +1156,7 @@ process mashDistanceToRef {
     cpus 4
 
     input:
-    set dataset_id, project, file(assembly), file(ref) from referenceSelection.combine(DIGCDMashRef)
+    set dataset_id, project, file(assembly), file(ref) from referenceSelection.combine(DIGCDMashRef).filter{ it[2].size()>1000 }
 
     output:
     set dataset_id, stdout into snapperClosestRef
