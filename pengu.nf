@@ -763,10 +763,11 @@ process AssembleFLUReads {
     script:
     proctag = dataset_id + "-" + segment
     """
-    if iva --threads ${task.cpus} -f $forward -r $reverse iva_assembly &> ${dataset_id}.${segment}.assembly.failed ; then
+    if iva --threads ${task.cpus} -f $forward -r $reverse iva_assembly &> ${dataset_id}.${segment}.status.txt ; then
       mv iva_assembly/contigs.fasta ${dataset_id}.${segment}.iva.fa
       sed -i "s/>.*/>${dataset_id}.${segment}/g" ${dataset_id}.${segment}.iva.fa
     else
+      tail -n1 ${dataset_id}.${segment}.status.txt > ${dataset_id}.${segment}.assembly.failed
       sed -i "1s/^/${dataset_id}.${segment}\t/" ${dataset_id}.${segment}.assembly.failed
     fi
     """
