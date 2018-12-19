@@ -3,3 +3,9 @@
 
 # SnapperDB reference files (keep configs)
 snapperdb/snapperdb-ref/**
+
+# Centrifuge QC database
+centrifuge/**
+
+# Kraken WCM database
+kraken/**

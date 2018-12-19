@@ -813,9 +813,15 @@ process CollectFailedFLUAssemblies {
 // Setup WCM trimmed reads channel
 WCMTBTrimmedReads = TrimmedReadsWCMTB.filter { it[1] == 'wcmtb' || it[1] == 'wcmid' }
 
-WCMTBTrimmedReads.into{ WCMTBTrimmedReadsMD5; WCMTrimmedReadsTyping; WCMMakeUploadDir }
+WCMTBTrimmedReads.into{ WCMTBTrimmedReadsMD5; WCMTrimmedReadsTyping; WCMMakeUploadDir; WCMTrimmedReadsKraken; WCMTrimmedReadsShovill }
 
 mykrobepanel = params.mykrobepanel
+
+WCMKrakenDB = params.wcmkrakendbdir
+
+Channel
+    .fromPath( WCMKrakenDB )
+    .set{ WCMKrakenRefs }
 
 
 Date day = new Date()
@@ -846,6 +852,165 @@ process makeUploadDir {
     createrepdirectory.execute()
 }
 
+
+process assembleShovillWCM {
+    tag { dataset_id }
+
+    errorStrategy 'ignore'
+
+    container = "file:///${params.simgdir}/shovill.simg"
+
+    cpus 5
+
+    memory '8 GB'
+
+    input:
+    set dataset_id, project, file(forward), file(reverse) from WCMTrimmedReadsShovill
+
+    output:
+    set dataset_id, project, file("${dataset_id}.fasta") optional true into WCMProkkaAssembly
+    set project, file("${dataset_id}.fasta") optional true into WCMquast
+    set dataset_id, project, file("${dataset_id}.fasta") into WCMkrakenAssembly
+
+    script:
+    """
+    shovill --cpus ${task.cpus} --R1 ${forward} --R2 ${reverse} --minlen 500 --outdir shovill
+    mv shovill/contigs.fa ${dataset_id}.fasta
+    """
+}
+
+process quastWCM {
+    tag { project }
+
+    publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*_assembly_summary.csv", mode: 'copy'
+
+    container = "file:///${params.simgdir}/quast.simg"
+
+    cpus 4
+
+    input:
+    set project, file(assembly) from WCMquast.groupTuple(by: 0)
+
+    output:
+    file("*_assembly_summary.csv")
+
+    script:
+    """
+    quast.py -t ${task.cpus} -o . --contig-thresholds 0 --no-html --no-plots *.fasta
+    sed 's/\t/,/g' transposed_report.tsv > ${shortRunID}_assembly_summary.csv
+    """
+}
+
+
+process annotateProkkaWCM {
+    tag { dataset_id }
+
+    publishDir "${outDir}/${project}/${RunID}/analysis/annotation/", pattern: "${dataset_id}/${dataset_id}.*", mode: 'copy'
+
+    container = "file:///${params.simgdir}/prokka.simg"
+
+    cpus 5
+
+    input:
+    set dataset_id, project, file(assembly) from WCMProkkaAssembly.filter{ it[2].size()>1000 }
+
+    output:
+    file("${dataset_id}/${dataset_id}.*")
+    set project, file("${dataset_id}.fna") into WCMresAssembly, WCMvirAssembly
+
+    script:
+    locusTag = dataset_id.tokenize("_")[0].tokenize("-")[1]
+    prefix = project.toUpperCase()
+    """
+    prokka --outdir ${dataset_id} --locustag ${prefix}_${locusTag} --prefix ${dataset_id} --centre PHW --cpus ${task.cpus} --compliant ${assembly}
+    cp ${dataset_id}/${dataset_id}.fna ${dataset_id}.fna
+    """
+}
+
+process callResistanceWCM {
+    tag { project }
+
+    publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*resistance_genes.csv", mode: 'copy'
+
+    container = "file:///${params.simgdir}/abricate.simg"
+
+    input:
+    set project, file(assembly) from WCMresAssembly.groupTuple(by: 0)
+
+    output:
+    file "*_resistance_genes.csv"
+
+    script:
+    """
+    abricate --db ${params.resistancedb} --csv *.fna > ${shortRunID}_resistance_genes.csv
+    """
+}
+
+process callVirulenceWCM {
+    tag { project }
+
+    publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*_virulence_genes.csv", mode: 'copy'
+
+    container = "file:///${params.simgdir}/abricate.simg"
+
+    input:
+    set project, file(assembly) from WCMvirAssembly.groupTuple(by: 0)
+
+    output:
+    file "*_virulence_genes.csv"
+
+    script:
+    """
+    abricate --db ${params.virulencedb} --csv *.fna > ${shortRunID}_virulence_genes.csv
+    """
+}
+
+process krakenWCM {
+    tag { dataset_id }
+
+    publishDir "${outDir}/${project}/${RunID}/analysis/kraken", pattern: "${dataset_id}_krakenreport.txt", mode: 'copy'
+
+    container = "file:///${params.simgdir}/kraken2.simg"
+
+    cpus 5
+
+    input:
+    set dataset_id, project, file(assembly) from WCMkrakenAssembly
+    file dbs from WCMKrakenRefs.toList()
+
+    output:
+    file("*_krakenreport.txt")
+    set project, file("${dataset_id}.tab") into WCMKrakenReport
+
+    script:
+    """
+    sed -i 's/ /|/g' ${assembly}
+    kraken2 --db . --threads ${task.cpus} --output ${dataset_id}_kraken.txt --report ${dataset_id}_krakenreport.txt ${assembly}
+    sed 's/|/\\t/g' ${dataset_id}_kraken.txt | sed 's/len=//g' | cut -f2,3,7 > ${dataset_id}.tab
+    #cut -f2,3 ${dataset_id}_kraken.tab > ${dataset_id}.tab
+    """
+}
+
+process kronaWCM {
+    tag { proctag }
+
+    container "file:///${params.simgdir}/kronatools.simg"
+
+    publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "${shortRunID}_wcm-kraken_report.html", mode: 'copy'
+
+    input:
+    set project, file(centrifuge) from WCMKrakenReport.groupTuple(by: 0)
+
+    output:
+    file "${shortRunID}_wcm-kraken_report.html"
+
+    script:
+      projectUpper = "${project}".toUpperCase()
+      proctag = RunID + "-" + projectUpper
+      """
+      ktImportTaxonomy -m 2 -t 3 -q 1 -o ${shortRunID}_wcm-kraken_report.html *.tab
+      """
+}
 
 
 process typingMykrobeWCM {
@@ -1002,7 +1167,7 @@ process annotateProkka {
     locusTag = dataset_id.tokenize("_")[0].tokenize("-")[1]
     prefix = project.toUpperCase()
     """
-    prokka --outdir ${dataset_id} --locustag ARG_${locusTag} --prefix ${dataset_id} --centre PHW --cpus ${task.cpus} --compliant ${assembly}
+    prokka --outdir ${dataset_id} --locustag ${prefix}_${locusTag} --prefix ${dataset_id} --centre PHW --cpus ${task.cpus} --compliant ${assembly}
     cp ${dataset_id}/${dataset_id}.fna ${dataset_id}.fna
     """
 }

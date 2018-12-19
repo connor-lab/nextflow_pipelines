@@ -142,6 +142,9 @@ params.wcmtbpath = "{{ remote_wcmtb_data_path }}"
 // Panel to use for TB geno and resistance typing, choose from bradley-2015 or walker-2015
 params.mykrobepanel = '{{ wcm_typing_panel | default('bradley-2015') }}'
 
+// Path to directory containing WCM kraken database
+params.wcmkrakendbdir = '{{ wcmid_kraken_db }}'
+
 
 // ## *** ARGENT PIPELINE CONFIG *** ##
 // DB to use for Abricate resistance
