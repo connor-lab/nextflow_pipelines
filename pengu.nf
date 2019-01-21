@@ -1046,7 +1046,7 @@ process WCMGenerateMD5 {
     cpus 1
 
     input:
-    set dataset_id, project, file(forward), file(reverse) from WCMTBTrimmedReadsMD5
+    set dataset_id, project, file(forward), file(reverse) from WCMTBTrimmedReadsMD5.filter{ it[0].toUpperCase() =~ /NEG/ ? false : true }
 
     output:
     set file("*_1.qc.md5.txt"), file("*_2.qc.md5.txt") into MD5s
