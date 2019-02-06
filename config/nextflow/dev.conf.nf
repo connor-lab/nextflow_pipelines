@@ -19,7 +19,7 @@ singularity.enabled = 'true'
 singularity.autoMounts = 'true'
 
 // Path to local singularity image directory
-params.simgdir = '/home/centos/singularity_images'
+params.simgdir = 'config/singularity_images'
 
 
 
