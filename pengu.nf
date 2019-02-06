@@ -712,6 +712,9 @@ process HIVMakeResistanceReport {
 // Setup FLU trimmed reads channel
 FLUTrimmedReads = TrimmedReadsFLU.filter { it[1] == 'flu' }
 
+// Setup init_dir for shiver
+FLUShiverInit = Channel.fromPath( "${params.flushiverinitroot}", type: 'dir')
+FLUShiverConf = Channel.fromPath( "${params.flushiverconf}" )
 
 // Setup references
 FLURef = Channel.from(['NA', file(params.flurefNA)],
@@ -735,7 +738,7 @@ process SeparateFLUSegmentReads {
     set dataset_id, project, file(forward), file(reverse), segment, file(ref) from FLUTrimmedReads.combine(FLURef)
 
     output:
-    set dataset_id, segment, file("${dataset_id}.${segment}_1.fq.gz"), file("${dataset_id}.${segment}_2.fq.gz") into FLUCleanReadsAssembly
+    set dataset_id, segment, file("${dataset_id}.${segment}_1.fq.gz"), file("${dataset_id}.${segment}_2.fq.gz") into FLUCleanReadsAssembly,FLUCleanReadsShiver
 
     script:
     proctag = dataset_id + "-" + segment
@@ -777,7 +780,7 @@ fluAssemblyShiver = Channel.create()
 
 fluAssemblyNotShiver = Channel.create()
 
-FLUIVAAssembly.choice( fluAssemblyShiver, fluAssemblyNotShiver){ it[1] in params.importantsegs ? 0 : 1 }
+FLUIVAAssembly.choice( fluAssemblyShiver, fluAssemblyNotShiver){ it[1] in params.shiversegs ? 0 : 1 }
 
 
 process shiverFLU {
@@ -889,24 +892,6 @@ sshkey = "${params.wcmtbkey}"
 endserver = "${params.wcmtbserver}"
 user = "${params.wcmtbuser}"
 endpath = "${params.wcmtbpath}/${YearMonthDay}-${shortRunID}"
-
-
-
-process makeUploadDir {
-    tag { RunID }
-
-    executor 'local'
-
-    input:
-    set dataset_id, project, file(forward), file(reverse) from WCMMakeUploadDir.first()
-
-    exec:
-    createfqdirectory ="ssh -i ${sshkey} ${user}@${endserver} mkdir -p ${endpath}/fastq"
-    createfqdirectory.execute()
-
-    createrepdirectory ="ssh -i ${sshkey} ${user}@${endserver} mkdir -p ${endpath}/reports"
-    createrepdirectory.execute()
-}
 
 
 process assembleShovillWCM {
@@ -1096,6 +1081,24 @@ process typingMykrobeWCM {
 }
 
 
+if(params.wcmtransferupload == 'true'){
+process makeUploadDir {
+    tag { RunID }
+
+    executor 'local'
+
+    input:
+    set dataset_id, project, file(forward), file(reverse) from WCMMakeUploadDir.first()
+
+    exec:
+    createfqdirectory ="ssh -i ${sshkey} ${user}@${endserver} mkdir -p ${endpath}/fastq"
+    createfqdirectory.execute()
+
+    createrepdirectory ="ssh -i ${sshkey} ${user}@${endserver} mkdir -p ${endpath}/reports"
+    createrepdirectory.execute()
+}
+
+
 process WCMGenerateMD5 {
     tag { dataset_id }
 
@@ -1144,6 +1147,7 @@ process WCMUploadFiles {
       ssh -i ${sshkey} ${user}@${endserver} \"cd ${endpath}/fastq; md5sum -c ${forwardmd5}\"
       ssh -i ${sshkey} ${user}@${endserver} \"cd ${endpath}/fastq; md5sum -c ${reversemd5}\"
       """
+}
 }
 
 // ** ## ARGENT PIPELINE ## ** //

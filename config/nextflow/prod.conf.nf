@@ -132,6 +132,9 @@ params.flushiverinitroot = '/home/centos/nextflow/refs/shiver_init_FLU'
 
 // ## *** WCMTB PIPELINE CONFIG *** ##
 
+// Upload WCM data (production profile ONLY)
+params.wcmtransferupload = 'true'
+
 // Transfer username
 transferuser = '{{ remote_wcmtb_username }}'
 

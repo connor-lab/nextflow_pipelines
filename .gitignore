@@ -2,10 +2,13 @@
 *.pem
 
 # SnapperDB reference files (keep configs)
-snapperdb/snapperdb-ref/**
+config/digcd/snapperdb-ref/**
 
 # Centrifuge QC database
-centrifuge/**
+config/qc/centrifuge_db/**
 
 # Kraken WCM database
-kraken/**
+config/wcmid/mycobacterium_krakendb/**
+
+# Nextflow logs
+.nextflow**
