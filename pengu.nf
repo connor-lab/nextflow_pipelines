@@ -757,36 +757,92 @@ process AssembleFLUReads {
     set dataset_id, segment, file(forward), file(reverse) from FLUCleanReadsAssembly
 
     output:
-    set dataset_id, file("${dataset_id}.${segment}.iva.fa") optional true into FLUIVAAssembly
+    set dataset_id, segment, file("${dataset_id}.${segment}.iva.fa") optional true into FLUIVAAssembly
     set dataset_id, file("*.assembly.failed") optional true into FLUIVAFail
 
     script:
     proctag = dataset_id + "-" + segment
     """
-    if iva --threads ${task.cpus} -f $forward -r $reverse iva_assembly &> ${dataset_id}.${segment}.status.txt ; then
+    if iva --threads ${task.cpus} -f $forward -r $reverse iva_assembly &> ${dataset_id}.${segment}.assembly.failed ; then
       mv iva_assembly/contigs.fasta ${dataset_id}.${segment}.iva.fa
       sed -i "s/>.*/>${dataset_id}.${segment}/g" ${dataset_id}.${segment}.iva.fa
     else
-      tail -n1 ${dataset_id}.${segment}.status.txt > ${dataset_id}.${segment}.assembly.failed
       sed -i "1s/^/${dataset_id}.${segment}\t/" ${dataset_id}.${segment}.assembly.failed
     fi
     """
 }
 
+
+fluAssemblyShiver = Channel.create()
+
+fluAssemblyNotShiver = Channel.create()
+
+FLUIVAAssembly.choice( fluAssemblyShiver, fluAssemblyNotShiver){ it[1] in params.importantsegs ? 0 : 1 }
+
+
+process shiverFLU {
+    tag { proctag }
+
+    container "file:///${params.simgdir}/shiver.simg"
+
+    cpus 4
+
+    input:
+    set dataset_id, segment, file(assembly), file(forward), file(reverse), file(shiverconf), file(shiverinit) from fluAssemblyShiver.combine(FLUCleanReadsShiver, by: [ 0 , 1 ]).combine(FLUShiverConf).combine(FLUShiverInit)
+
+    output:
+    set dataset_id, file("${dataset_id}.${segment}.shiver.fa") into fluAssemblyReconstitute
+
+    script:
+    proctag = dataset_id + "-" + segment
+    """
+    shiver_align_contigs.sh ${shiverinit}/${segment} ${shiverconf} ${assembly} ${dataset_id}
+    if [ -f ${dataset_id}_cut_wRefs.fasta ]; then
+      shiver_map_reads.sh ${shiverinit}/${segment} ${shiverconf} ${assembly} ${dataset_id} ${dataset_id}.blast ${dataset_id}_cut_wRefs.fasta ${forward} ${reverse}
+    else
+      shiver_map_reads.sh ${shiverinit}/${segment} ${shiverconf} ${assembly} ${dataset_id} ${dataset_id}.blast ${dataset_id}_raw_wRefs.fasta ${forward} ${reverse}
+    fi
+    seqtk seq -l0 ${dataset_id}_remap_consensus_MinCov_15_30.fasta | head -n2 | sed '/>/!s/-//g' | sed 's/\\?/N/g' | sed "s/_remap_consensus/\\.${segment}/g" > ${dataset_id}.${segment}.shiver.fa
+    """
+}
+
+
+process removeSegmentFLU {
+    tag{ proctag }
+
+    executor 'local'
+
+    stageInMode 'copy'
+
+    input:
+    set dataset_id, segment, file(assembly) from fluAssemblyNotShiver
+
+    output:
+    set dataset_id, file("${dataset_id}.${segment}.iva.fa") into fluAssemblyNotShiverClean
+
+    script:
+    proctag = dataset_id + "-" + segment
+    """
+    """
+}
+
+
 process ReconstituteFLUGenome {
     tag { dataset_id }
+
+    container "file:///${params.simgdir}/seqtk.simg"
 
     publishDir "${params.fludir}/${RunID}/analysis/assembly", pattern: "${dataset_id}.fasta", mode: 'copy'
 
     input:
-    set dataset_id, file('*') from FLUIVAAssembly.groupTuple()
+    set dataset_id, file('*') from fluAssemblyReconstitute.concat(fluAssemblyNotShiverClean).groupTuple()
 
     output:
     file "${dataset_id}.fasta"
 
     script:
     """
-    cat *.fa > ${dataset_id}.fasta
+    cat *.fa | seqtk seq -l0 > ${dataset_id}.fasta
     """
 }
 

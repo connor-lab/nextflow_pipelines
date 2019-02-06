@@ -120,6 +120,15 @@ params.flurefNP = '{{ flu_ref_dir }}/{{ flu_ref_prefix }}.NP.fa'
 params.flurefNS1 = '{{ flu_ref_dir }}/{{ flu_ref_prefix }}.NS1.fa'
 params.flurefPA = '{{ flu_ref_dir }}/{{ flu_ref_prefix }}.PA.fa'
 
+// Run Shiver on these segments - reference alignments and shiver_init directories required
+params.shiversegs = [ 'NA', 'HA' , 'M1' ]
+
+// Path to the shiver config.sh file used for flu
+params.flushiverconf = '/home/centos/nextflow/refs/shiver_init_FLU/config.sh'
+
+// Path to the root shiverinit directory for flu - the shiver_init directory for each segment should be within this, named with just the segment abbreviation
+params.flushiverinitroot = '/home/centos/nextflow/refs/shiver_init_FLU'
+
 
 // ## *** WCMTB PIPELINE CONFIG *** ##
 
