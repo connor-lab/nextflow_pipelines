@@ -183,7 +183,7 @@ process Centrifuge {
 
     cpus 8
 
-    queue 'compute-hm'
+    //queue 'compute-hm'
 
     input:
     set dataset_id, project, file(forward), file(reverse) from TrimmedReadsQC
@@ -258,6 +258,7 @@ process PrepareMagnitudeSummary {
     file.append("Sample,Taxon,NCBI TaxID,Number of reads matching taxon,Mean read length,Total bp attributed to taxon\n")
 }
 
+
 process CalculateMagnitudeSummary {
     tag { dataset_id }
 
@@ -272,7 +273,6 @@ process CalculateMagnitudeSummary {
     def file = new File("${outDir}/${project}/${RunID}/qc/magnitude_summary.csv")
     file.append("${dataset_id},${taxName},${taxID},${numberReads},${avgReadLength},${matchingBP}\n")
 }
-
 
 process FlattenOutputs {
     tag { RunID }
@@ -414,7 +414,7 @@ process AssembleHIVReads {
 
     publishDir "/mnt/datastore/hiv/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.iva.fa", mode: 'copy'
  
-    container = "file:///${params.simgdir}/iva.simg"
+    container "file:///${params.simgdir}/iva.simg"
 
     cpus 4
 
@@ -458,7 +458,7 @@ if(params.shiver == 'false'){
 process OrderHIVContigs {
     tag { dataset_id }
 
-    container = "file:///${params.simgdir}/assembly_improvement.simg"
+    container "file:///${params.simgdir}/assembly_improvement.simg"
 
     input:
     set dataset_id, file(assembly), file(ref) from HIVIVAAssembly.combine(HIVHXB2)
@@ -479,7 +479,7 @@ process GapfillHIVContigs {
 
     publishDir "${params.hivdir}/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.polished.fa", mode: 'copy'
 
-    container = "file:///${params.simgdir}/assembly_improvement.simg"
+    container "file:///${params.simgdir}/assembly_improvement.simg"
 
     cpus 4
 
@@ -532,7 +532,7 @@ process HIVMappingVariantCalling {
 
     cpus 4
 
-    container = "file:///${params.simgdir}/minimap2.simg"
+    container "file:///${params.simgdir}/minimap2.simg"
 
     input:
     set dataset_id, file(forward), file(reverse), file(assembly) from HIVCleanReadsVariantCalling.join(HIVAssemblyBAM)
@@ -658,29 +658,6 @@ process HIVVariantCallingLoFreq {
 
 HIVAssemblyWithSelectedMinVarFreq = HIVAssemblyWithVariants.filter{ it[1] == params.selectedminvarfreq }
 
-/*
-process HIVCallResistance {
-    tag { dataset_id }
-
-    container "file:///${params.simgdir}/sierrapy.simg"
-
-    publishDir "${params.hivdir}/${RunID}/analysis/04-call_resistance", pattern: "${dataset_id}.hivdb_report.json", mode: 'copy'
-
-    queue 'internet'
-
-    input:
-    set dataset_id, minvarfreq, file(variantassembly) from HIVAssemblyWithSelectedMinVarFreq
-
-    output:
-    set dataset_id, file("*.hivdb_report.json") into HIVDBReportJson
-
-    script:
-    """
-    sierrapy fasta -o ${dataset_id}.hivdb_report.json $variantassembly
-    """
-}
-*/
-
 process HIVMakeResistanceReport {
     tag { dataset_id }
 
@@ -690,7 +667,7 @@ process HIVMakeResistanceReport {
     publishDir "${params.hivdir}/${RunID}/analysis/05-generate_report", pattern: "${dataset_id}.rtf", mode: 'copy'
     publishDir "${params.hivdir}/reports/${YearMonth}", pattern: "${dataset_id}.rtf", mode: 'copy'
 
-    queue 'internet'
+    //queue 'internet'
 
     input:
     set dataset_id, minvarfreq, file(variantassembly) from HIVAssemblyWithSelectedMinVarFreq
@@ -752,7 +729,7 @@ process SeparateFLUSegmentReads {
 process AssembleFLUReads {
     tag { proctag }
 
-    container = "file:///${params.simgdir}/iva.simg"
+    container "file:///${params.simgdir}/iva.simg"
 
     cpus 4
 
@@ -899,7 +876,7 @@ process assembleShovillWCM {
 
     errorStrategy 'ignore'
 
-    container = "file:///${params.simgdir}/shovill.simg"
+    container "file:///${params.simgdir}/shovill.simg"
 
     cpus 5
 
@@ -925,7 +902,7 @@ process quastWCM {
 
     publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*_assembly_summary.csv", mode: 'copy'
 
-    container = "file:///${params.simgdir}/quast.simg"
+    container "file:///${params.simgdir}/quast.simg"
 
     cpus 4
 
@@ -948,7 +925,7 @@ process annotateProkkaWCM {
 
     publishDir "${outDir}/${project}/${RunID}/analysis/annotation/", pattern: "${dataset_id}/${dataset_id}.*", mode: 'copy'
 
-    container = "file:///${params.simgdir}/prokka.simg"
+    container "file:///${params.simgdir}/prokka.simg"
 
     cpus 5
 
@@ -973,7 +950,7 @@ process callResistanceWCM {
 
     publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*resistance_genes.csv", mode: 'copy'
 
-    container = "file:///${params.simgdir}/abricate.simg"
+    container "file:///${params.simgdir}/abricate.simg"
 
     input:
     set project, file(assembly) from WCMresAssembly.groupTuple(by: 0)
@@ -992,7 +969,7 @@ process callVirulenceWCM {
 
     publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*_virulence_genes.csv", mode: 'copy'
 
-    container = "file:///${params.simgdir}/abricate.simg"
+    container "file:///${params.simgdir}/abricate.simg"
 
     input:
     set project, file(assembly) from WCMvirAssembly.groupTuple(by: 0)
@@ -1011,7 +988,7 @@ process krakenWCM {
 
     publishDir "${outDir}/${project}/${RunID}/analysis/kraken", pattern: "${dataset_id}_krakenreport.txt", mode: 'copy'
 
-    container = "file:///${params.simgdir}/kraken2.simg"
+    container "file:///${params.simgdir}/kraken2.simg"
 
     cpus 5
 
@@ -1060,7 +1037,7 @@ process typingMykrobeWCM {
     publishDir "${outDir}/${project}/${RunID}/analysis/typing/json", pattern: "${dataset_id}.json", mode: 'copy'
     publishDir "${outDir}/${project}/${RunID}/analysis/typing/csv", pattern: "${dataset_id}.csv", mode: 'copy'
 
-    container = "file:///${params.simgdir}/mykrobe-atlas.simg"
+    container "file:///${params.simgdir}/mykrobe-atlas.simg"
 
     errorStrategy 'ignore'
 
@@ -1075,7 +1052,7 @@ process typingMykrobeWCM {
 
     script:
     """
-    mykrobe predict ${dataset_id} tb --panel ${mykrobepanel} --seq *.fq.gz --output ${dataset_id}.json
+    mykrobe predict ${dataset_id} tb --panel ${mykrobepanel} --seq *.fq.gz --format json --output ${dataset_id}.json
     json_to_tsv.py ${dataset_id}.json | sed 's/\\t/,/g' > ${dataset_id}.csv
     """
 }
@@ -1127,7 +1104,7 @@ process WCMUploadFiles {
     
     cpus 1
 
-    queue 'internet'
+    //queue 'internet'
 
     maxForks 3
     errorStrategy 'retry'
@@ -1157,14 +1134,14 @@ process WCMUploadFiles {
 ARGTrimmedReads = TrimmedReadsARG.filter { it[1] ==~ 'argid' || it[1] ==~ 'argab' }
 
 
-process assembleShovill {
+process assembleShovillARGENT {
     tag { dataset_id }
 
     errorStrategy 'ignore'
 
 //  publishDir "${outDir}/${project}/${RunID}/analysis/assembly", pattern: "${dataset_id}.fasta", mode: 'copy'
 
-    container = "file:///${params.simgdir}/shovill.simg"
+    container "file:///${params.simgdir}/shovill.simg"
 
     cpus 5
 
@@ -1189,7 +1166,7 @@ process quastARGENT {
 
     publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*_assembly_summary.csv", mode: 'copy'
 
-    container = "file:///${params.simgdir}/quast.simg"
+    container "file:///${params.simgdir}/quast.simg"
 
     cpus 4
 
@@ -1207,12 +1184,12 @@ process quastARGENT {
 }
 
 
-process annotateProkka {
+process annotateProkkaARGENT {
     tag { dataset_id }
 
     publishDir "${outDir}/${project}/${RunID}/analysis/annotation/", pattern: "${dataset_id}/${dataset_id}.*", mode: 'copy'
 
-    container = "file:///${params.simgdir}/prokka.simg"
+    container "file:///${params.simgdir}/prokka.simg"
 
     cpus 5
 
@@ -1232,12 +1209,12 @@ process annotateProkka {
     """
 }
 
-process callMLST {
+process callMLSTARGENT {
     tag { project }
 
     publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "*_MLST.csv", mode: 'copy'
 
-    container = "file:///${params.simgdir}/mlst.simg"
+    container "file:///${params.simgdir}/mlst.simg"
 
     input:
     set project, file(assembly) from MLSTAssemblyARGENT.groupTuple(by: 0)
@@ -1251,12 +1228,12 @@ process callMLST {
     """
 }
 
-process callResistance {
+process callResistanceARGENT {
     tag { project }
 
     publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*resistance_genes.csv", mode: 'copy'
 
-    container = "file:///${params.simgdir}/abricate.simg"
+    container "file:///${params.simgdir}/abricate.simg"
 
     input:
     set project, file(assembly) from resAssemblyARGENT.groupTuple(by: 0)
@@ -1270,12 +1247,12 @@ process callResistance {
     """
 }
 
-process callVirulence {
+process callVirulenceARGENT {
     tag { project }
 
     publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*_virulence_genes.csv", mode: 'copy'
 
-    container = "file:///${params.simgdir}/abricate.simg"
+    container "file:///${params.simgdir}/abricate.simg"
 
     input:
     set project, file(assembly) from virAssemblyARGENT.groupTuple(by: 0)
@@ -1307,7 +1284,7 @@ process assembleShovillDIGCD {
 
     errorStrategy 'ignore'
 
-    container = "file:///${params.simgdir}/shovill.simg"
+    container "file:///${params.simgdir}/shovill.simg"
 
     cpus 4
 
@@ -1331,7 +1308,7 @@ process quastDIGCD {
 
     publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*_assembly_summary.csv", mode: 'copy'
 
-    container = "file:///${params.simgdir}/quast.simg"
+    container "file:///${params.simgdir}/quast.simg"
 
     cpus 4
 
@@ -1353,7 +1330,7 @@ process annotateProkkaDIGCD {
 
     publishDir "${outDir}/${project}/${RunID}/analysis/annotation/", pattern: "${dataset_id}/${dataset_id}.*", mode: 'copy'
 
-    container = "file:///${params.simgdir}/prokka.simg"
+    container "file:///${params.simgdir}/prokka.simg"
 
     cpus 4
 
@@ -1377,7 +1354,7 @@ process mashDistanceToRef {
 
     publishDir "${outDir}/${project}/${RunID}/analysis/reference_selection/", pattern: "${dataset_id}_distance.csv", mode: 'copy'
 
-    container = "file:///${params.simgdir}/mash.simg"
+    container "file:///${params.simgdir}/mash.simg"
 
     cpus 4
 
@@ -1450,7 +1427,7 @@ process snapperDBfastqToVCF {
 
     publishDir "${outDir}/${project}/${RunID}/analysis/variant_calling/", pattern: "*vcf*", mode: 'copy'
 
-    container = "file:///${params.simgdir}/snapperdb.simg"
+    container "file:///${params.simgdir}/snapperdb.simg"
 
     cpus 4
 

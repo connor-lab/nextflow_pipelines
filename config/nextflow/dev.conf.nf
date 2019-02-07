@@ -21,6 +21,7 @@ singularity.autoMounts = 'true'
 // Path to local singularity image directory
 params.simgdir = 'config/singularity_images'
 
+includeConfig 'dev_singularity.conf'
 
 
 // ## *** QC PIPELINE CONFIG *** ##
@@ -135,7 +136,7 @@ params.flushiverinitroot = 'config/flu/shiver_init_FLU'
 params.wcmtransferupload = 'false'
 
 // Panel to use for TB geno and resistance typing, choose from bradley-2015 or walker-2015
-params.mykrobepanel = 'bradley-2015'
+params.mykrobepanel = '201901'
 
 // Path to directory containing WCM kraken database
 params.wcmkrakendbdir = 'config/wcmid/mycobacterium_krakendb'
