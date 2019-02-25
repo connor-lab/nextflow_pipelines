@@ -126,10 +126,10 @@ params.flurefPA = '{{ flu_ref_dir }}/{{ flu_ref_prefix }}.PA.fa'
 params.shiversegs = [ 'NA', 'HA' , 'M1' ]
 
 // Path to the shiver config.sh file used for flu
-params.flushiverconf = '/home/centos/nextflow/refs/shiver_init_FLU/config.sh'
+params.flushiverconf = '{{ flu_ref_dir }}/shiver_init_FLU/config.sh'
 
 // Path to the root shiverinit directory for flu - the shiver_init directory for each segment should be within this, named with just the segment abbreviation
-params.flushiverinitroot = '/home/centos/nextflow/refs/shiver_init_FLU'
+params.flushiverinitroot = '{{ flu_ref_dir }}/shiver_init_FLU'
 
 
 // ## *** WCMTB PIPELINE CONFIG *** ##

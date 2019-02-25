@@ -745,9 +745,9 @@ process AssembleFLUReads {
     """
     if iva --threads ${task.cpus} -f $forward -r $reverse iva_assembly &> ${dataset_id}.${segment}.assembly.failed ; then
       mv iva_assembly/contigs.fasta ${dataset_id}.${segment}.iva.fa
-      sed -i "s/>.*/>${dataset_id}.${segment}/g" ${dataset_id}.${segment}.iva.fa
+      sed -i "s/>/>${dataset_id}\\.${segment}\\./g" ${dataset_id}.${segment}.iva.fa
     else
-      sed -i "1s/^/${dataset_id}.${segment}\t/" ${dataset_id}.${segment}.assembly.failed
+      sed -i "1s/^/${dataset_id}\\.${segment}\t/" ${dataset_id}.${segment}.assembly.failed
     fi
     """
 }
