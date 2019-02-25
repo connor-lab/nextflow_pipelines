@@ -1,7 +1,7 @@
 // PHW Nextflow Config
 
 
-includeConfid 'prod_slurmqueue.conf'
+includeConfig 'prod_slurmqueue.conf'
 
 // ## *** GENERAL CONFIG *** ##
 
