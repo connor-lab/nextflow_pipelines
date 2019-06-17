@@ -135,7 +135,11 @@ process TrimReads {
 
     script:
       """
-      trim_galore --fastqc --paired $forward $reverse
+      if [[ \$(zcat ${forward} | head -n4 | wc -l) -eq 0 ]]; then
+        exit 0
+      else
+        trim_galore --fastqc --paired $forward $reverse
+      fi
       """
 }
 
