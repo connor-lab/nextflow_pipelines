@@ -1082,7 +1082,7 @@ process WCMGenerateMD5 {
     cpus 1
 
     input:
-    set dataset_id, project, file(forward), file(reverse) from WCMTBTrimmedReadsMD5.filter{ it[0].toUpperCase() =~ /NEG/ ? false : true }
+    set dataset_id, project, file(forward), file(reverse) from WCMTBTrimmedReadsMD5.filter{ it[0].toUpperCase() =~ /NTC/ ? false : true }
 
     output:
     set file("*_1.qc.md5.txt"), file("*_2.qc.md5.txt") into MD5s
@@ -1090,18 +1090,26 @@ process WCMGenerateMD5 {
 
     script:
        accession = dataset_id.tokenize("_")[0].tokenize("-")[1]
+       episode = dataset_id.tokenize("_")[0].tokenize("-")[2]
        shortRunID = RunID.tokenize("_")[0, 1].join("_")
+       if (accession == "XXX") {
+           prefix = episode + "!" + episode
+       } else if (accession == "CON") {
+           prefix = episode + "!" + episode
+       } else {
+           prefix = accession + "!" + episode
+       }
        """
-       mv $forward ${accession}!${accession}-${shortRunID}_1.fq.gz
-       mv $reverse ${accession}!${accession}-${shortRunID}_2.fq.gz
-       md5sum ${accession}!${accession}-${shortRunID}_1.fq.gz > ${accession}!${accession}-${shortRunID}_1.qc.md5.txt
-       md5sum ${accession}!${accession}-${shortRunID}_2.fq.gz > ${accession}!${accession}-${shortRunID}_2.qc.md5.txt
+       mv $forward ${prefix}-${shortRunID}_1.fq.gz
+       mv $reverse ${prefix}-${shortRunID}_2.fq.gz
+       md5sum ${prefix}-${shortRunID}_1.fq.gz > ${prefix}-${shortRunID}_1.qc.md5.txt
+       md5sum ${prefix}-${shortRunID}_2.fq.gz > ${prefix}-${shortRunID}_2.qc.md5.txt
        """
 }
 
 process WCMUploadFiles {
     tag { dataset_id }
-    
+
     cpus 1
 
     //queue 'internet'
@@ -1114,7 +1122,7 @@ process WCMUploadFiles {
     input:
     set dataset_id, file(forward), file(reverse) from UploadReads
     set file(forwardmd5), file(reversemd5) from MD5s
-      
+
     script:
       """
       scp -i ${sshkey} $forward ${user}@${endserver}:${endpath}/fastq
@@ -1125,6 +1133,8 @@ process WCMUploadFiles {
       ssh -i ${sshkey} ${user}@${endserver} \"cd ${endpath}/fastq; md5sum -c ${reversemd5}\"
       """
 }
+
+
 }
 
 // ** ## ARGENT PIPELINE ## ** //
