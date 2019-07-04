@@ -119,8 +119,6 @@ process TrimReads {
     publishDir "${outDir}/${project}/${RunID}/qc/fastqc", pattern: '*_fastqc.{zip,html}', mode: 'copy'
     publishDir "${outDir}/${project}/${RunID}/qc/trim_galore" , pattern: '*_trimming_report.txt', mode: 'copy'
 
-    beforeScript "mkdir -p ${outDir}/${project}/${RunID}/progress && touch ${outDir}/${project}/${RunID}/progress/01-trimming.begin"
-
     cpus 2
 
     input: 
@@ -141,21 +139,6 @@ process TrimReads {
         trim_galore --fastqc --paired $forward $reverse
       fi
       """
-}
-
-process FinaliseTrimming {
-    tag { RunID }
-
-    executor 'local' 
-
-    input:
-    set datasets, project from TrimmingDone.groupTuple(by: 1)
-
-    exec:
-    File file = new File("${outDir}/${project}/${RunID}/progress/01-trimming.end")
-    for (line in datasets) {
-      file.append("${line}\n")
-    }
 }
 
 process MeanTrimmedReadLength {
@@ -182,8 +165,6 @@ process Centrifuge {
     container "file:///${params.simgdir}/centrifuge.simg"
 
     publishDir "${outDir}/${project}/${RunID}/qc/centrifuge", mode: 'copy'
-
-    beforeScript "mkdir -p ${outDir}/${project}/${RunID}/progress && touch ${outDir}/${project}/${RunID}/progress/02-centrifuge.begin"
 
     cpus 8
 
@@ -305,8 +286,6 @@ process MultiQC {
 
     publishDir "${outDir}/${project}/${RunID}/qc", mode: 'copy'
 
-    beforeScript "mkdir -p ${outDir}/${project}/${RunID}/progress && touch ${outDir}/${project}/${RunID}/progress/03-multiqc.begin"
-
     input:
     set project, file(trim), file(fastqc), file(interop), file(multiqcconf) from MultiQCFlat.combine(InterOpMultiQC).combine(multiQCConfYaml)
 
@@ -329,8 +308,6 @@ process Krona {
     container "file:///${params.simgdir}/kronatools.simg"
 
     publishDir "${outDir}/${project}/${RunID}/qc", mode: 'copy'
-
-    beforeScript "mkdir -p ${outDir}/${project}/${RunID}/progress && touch ${outDir}/${project}/${RunID}/progress/04-centrifuge_plot.begin"
 
     input:
     set project, file(centrifuge) from KronaFlat
@@ -1433,8 +1410,27 @@ snapperDBInputfilterPass = Channel.create()
 
 snapperDBInputfilterFail = Channel.create()
 
-snapperDBInputUnfiltered.choice( snapperDBInputfilterPass, snapperDBInputfilterFail ){ float dist = Float.parseFloat(it[2])
-                                                                                             dist <= maxmashdist ? 0 : 1 }
+snapperDBInputUnfiltered.choice( snapperDBrenameReads , snapperDBInputfilterFail ){ float dist = Float.parseFloat(it[2])
+                                                                                          dist <= maxmashdist ? 0 : 1 }
+
+
+process renameReadsForSnapperDB {
+    tag { dataset_id }
+
+    input:
+    set dataset_id, ref, distance, project, file(forward), file(reverse), file(configdir), file(refdir) from snapperDBrenameReads
+
+    output:
+    set dataset_id, ref, distance, project, file("${snapperDBname}.R1.fq.gz}"), file("${snapperDBname}.R2.fq.gz}"), file("${configdir}"), file("${refdir}") into snapperDBInputfilterPass
+
+    script:
+    snapperDBname = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+$/, "")
+    """
+    mv ${forward} ${snapperDBname}.R1.fq.gz
+    mv ${reverse} ${snapperDBname}.R2.fq.gz
+    """
+}
+
 
 process snapperDBfastqToVCF {
     tag { dataset_id }
@@ -1461,6 +1457,54 @@ process snapperDBfastqToVCF {
     mv snpdb/${dataset_id}* .
     """
 }
+
+/*
+process snapperDBVCFtoDB {
+   tag { dataset_id }
+
+   maxForks 1
+
+   cpus 1
+
+   input:
+   set dataset_id, ref, project, file(vcf), file(index), file(configdir), file(refdir) from snapperDBVCFtoDB
+
+   output:
+   val ref into snapperDBupdateDistanceMatrix
+   val dataset_id into snapperDBupdateDistanceMatrixDummy
+
+   script:
+   confname = ref.take(ref.lastIndexOf('.'))
+   """
+   export GASTROSNAPPER_CONFPATH=${configdir}
+   export GASTROSNAPPER_REFPATH=${refdir}
+   run_snapperdb.py vcf_to_db -c ${confname}.txt ${vcf}
+   """
+}
+
+
+process snapperDBupdateDistanceMatrix {
+   tag { confname }
+
+   cpus 1
+
+   input:
+   set ref, file(configdir) from snapperDBupdateDistanceMatrix.combine(confDirUpdateDistanceMatrix)
+                                                              .combine(snapperDBupdateDistanceMatrixDummy.collect())
+                                                              .unique()
+                                                              .map{ [ it[0] , it[1] ] }
+
+   output:
+   val ref
+
+   script:
+   confname = ref.take(ref.lastIndexOf('.'))
+   """
+   export GASTROSNAPPER_CONFPATH=${configdir}
+   run_snapperdb.py update_distance_matrix -c ${confname}.txt
+   """
+}
+*/
 
 
 /*
