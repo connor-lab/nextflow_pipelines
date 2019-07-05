@@ -31,7 +31,8 @@ projects = params.projectlist
 // This takes all fastqs and filters so that only those defined in config file (projectlist) get processed
 Channel.fromFilePairs( "${allFastq}/*_R{1,2}_001.fastq.gz" , flat: true)
        .filter { it[0].tokenize("-")[0].toLowerCase() in projects }
-       .into{ CopyRawFastq; MakeProjectFastq }
+       //.into{ CopyRawFastq; MakeProjectFastq }
+       .set{ InputReads }
 
 
 // Channel for MiSeq run directory, needed for InterOp process
@@ -52,7 +53,6 @@ Channel
 Channel
     .fromPath( multiQCConf )
     .set{  multiQCConfYaml }
-
 
 process IlluminaInteropStats {
     tag{ RunID }
@@ -89,45 +89,9 @@ process BackupRunDirectory {
     """
 }
 
-process MakeProject {
-    tag{ dataset_id }
+InputReads.map{ [ it[0] , it[0].tokenize("-")[0].toLowerCase() , it[1] , it[2] ]}.into{ inputReadsProject ; countProject }
 
-    executor 'local'
-
-    input:
-    set dataset_id, file(forward), file(reverse) from MakeProjectFastq
-
-    output:
-    set dataset_id, project into MakeProject, CountProject
-
-    exec:
-    project = "$dataset_id".tokenize("-")[0].toLowerCase()
-}
-
-MakeProject.join(CopyRawFastq).into{ InputReads; CopyReads }
-
-CountProject.countBy{ it[1] }.println()
-
-/*
-process CopyRawReads {
-    tag{ dataset_id }
-
-    executor 'local'
-
-    input:
-    set dataset_id, project, file(forward), file(reverse) from CopyReads
-
-    exec:
-    RawReadsPath = file("${outDir}/${project}/${RunID}/raw_reads")
-    RawReadsPath.mkdirs()
-    ReadList = []
-    ReadList.add(file("${allFastq}/${forward}"))
-    ReadList.add(file("${allFastq}/${reverse}"))
-    for( file in ReadList ) {
-       file.copyTo(RawReadsPath)
-    }
-}
-*/
+countProject.map{ [ it[0] , it[1] ]}. countBy{ it[1] }.println()
 
 process TrimReads {
     tag { dataset_id }
@@ -141,7 +105,7 @@ process TrimReads {
     cpus 2
 
     input: 
-    set dataset_id, project, file(forward), file(reverse) from InputReads
+    set dataset_id, project, file(forward), file(reverse) from inputReadsProject
  
     output:
     set dataset_id, project, file("*_val_1.fq.gz"), file("*_val_2.fq.gz") optional true into TrimmedReadsLength, TrimmedReadsQC, TrimmedReadsHIV, TrimmedReadsFLU, TrimmedReadsWCMTB, TrimmedReadsARG, TrimmedReadsDIGCD
