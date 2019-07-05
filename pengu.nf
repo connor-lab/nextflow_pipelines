@@ -36,7 +36,7 @@ Channel.fromFilePairs( "${allFastq}/*_R{1,2}_001.fastq.gz" , flat: true)
 
 // Channel for MiSeq run directory, needed for InterOp process
 Channel.fromPath( runDir, type: 'dir', maxDepth: 1 )
-       .set{ IlluminaRunDir }
+       .into{ IlluminaRunDir ; backupRunDir }
 
 // Channel for centrifuge database files, so that they are symlinked into WORKDIR
 Channel
@@ -71,6 +71,24 @@ process IlluminaInteropStats {
       """
 }
 
+backupHost = params.backupHost
+backupUser = params.backupUser
+backupPath = params.backupPath
+
+
+process BackupRunDirectory {
+    tag{RunID}
+
+    input:
+    file(runDir) from backupRunDir
+
+    script:
+    miseqID = "${runDir}".tokenize("_")[1]
+    """
+    rsync -avL ${runDir} ${backupUser}@${backupHost}:${backupPath}/${miseqID}/
+    """
+}
+
 process MakeProject {
     tag{ dataset_id }
 
@@ -90,7 +108,7 @@ MakeProject.join(CopyRawFastq).into{ InputReads; CopyReads }
 
 CountProject.countBy{ it[1] }.println()
 
-
+/*
 process CopyRawReads {
     tag{ dataset_id }
 
@@ -109,6 +127,7 @@ process CopyRawReads {
        file.copyTo(RawReadsPath)
     }
 }
+*/
 
 process TrimReads {
     tag { dataset_id }

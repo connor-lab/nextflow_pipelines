@@ -26,6 +26,11 @@ singularity.autoMounts = '{{ nextflow_singularity_automounts | default('true') }
 params.simgdir = '{{ singularity_imagedir }}'
 
 
+// Backup location and user
+params.backupHost = '{{ nextflow_backuphost }}'
+params.backupUser = '{{ nextflow_backupuser }}'
+params.backupPath = '{{ nextflow_backuppath }}'
+
 
 // ## *** QC PIPELINE CONFIG *** ##
 
