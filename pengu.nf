@@ -1423,7 +1423,7 @@ process renameReadsForSnapperDB {
     set dataset_id, ref, distance, project, file("${snapperDBname}.R1.fq.gz}"), file("${snapperDBname}.R2.fq.gz}"), file("${configdir}"), file("${refdir}") into snapperDBInputfilterPass
 
     script:
-    snapperDBname = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+$/, "")
+    snapperDBname = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "")
     """
     mv ${forward} ${snapperDBname}.R1.fq.gz
     mv ${reverse} ${snapperDBname}.R2.fq.gz
