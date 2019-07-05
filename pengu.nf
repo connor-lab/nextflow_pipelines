@@ -1507,7 +1507,7 @@ process snapperDBupdateDistanceMatrix {
 */
 
 
-/*
+
 workflow.onComplete {
 
     def msg = """\
@@ -1520,15 +1520,14 @@ workflow.onComplete {
         Success         : ${workflow.success}
         workDir         : ${workflow.workDir}
         exit status     : ${workflow.exitStatus}
-        Uploaded to	: ${endserver}
-        Upload Directory: ${endpath}
         """
         .stripIndent()
+
 if(workflow.success == true) {
-    sendMail(to: 'bullmj2@cf.ac.uk', subject: "WCM Upload Pipeline finished with status: Success", body: msg)
+    sendMail(to: 'matthew.bull@wales.nhs.uk', subject: "PenGU sequencing pipeline complete: SUCCESS", body: msg)
 }
 else {
-    sendMail(to: 'bullmj2@cf.ac.uk', subject: "WCM Pipeline finished with status: Failure", body: msg)
+    sendMail(to: 'matthew.bull@wales.nhs.uk', subject: "PenGU sequencing pipeline complete: FAILURE", body: msg)
 }
 }
-*/	
+	
