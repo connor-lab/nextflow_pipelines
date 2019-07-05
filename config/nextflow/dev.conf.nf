@@ -5,23 +5,15 @@
 
 // # Output #
 // Path to output directory (containing project directories)
-outdir = '/mnt/datastore'
+outdir = '/home/ubuntu/output'
 
 // Execute jobs locally
 process.executor = 'local'
 
 
-// # Singularity #
-// Enable singularity containers
-singularity.enabled = 'true'
-
-// This should be set
-singularity.autoMounts = 'true'
-
-// Path to local singularity image directory
-params.simgdir = 'config/singularity_images'
-
-includeConfig 'dev_singularity.conf'
+params.backupUser = 'ubuntu'
+params.backupHost = 'localhost'
+params.backupPath = '/home/ubuntu/backups'
 
 
 // ## *** QC PIPELINE CONFIG *** ##

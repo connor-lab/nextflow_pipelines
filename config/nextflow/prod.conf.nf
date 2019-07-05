@@ -31,7 +31,7 @@ params.simgdir = '{{ singularity_imagedir }}'
 
 // # Projects #
 // Project list in groovy list format
-params.projectlist = ['argab', 'argid', 'digcd', 'digid', 'flu', 'hiv', 'wcmtb', 'wcmid']
+params.projectlist = ['argab', 'argid', 'digcd', 'digid', 'flu', 'hiv', 'wcmtb', 'wcmid' , 'testpipe' ]
 
 
 // # Output #

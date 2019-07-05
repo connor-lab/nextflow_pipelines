@@ -1453,7 +1453,7 @@ process snapperDBfastqToVCF {
     export GASTROSNAPPER_CONFPATH=${configdir}
     export GASTROSNAPPER_REFPATH=${refdir}
     run_snapperdb.py fastq_to_vcf -c ${confname}.txt ${forward} ${reverse}
-    mv snpdb/${dataset_id}* .
+    mv snpdb/*.vcf* .
     """
 }
 
@@ -1512,6 +1512,7 @@ workflow.onComplete {
     def msg = """\
         Pipeline execution summary
         ---------------------------
+        MiSeq run name  : ${RunID}
         Workflow name   : ${workflow.scriptName}
         Workflow version: ${workflow.scriptId}
         Completed at    : ${workflow.complete}
