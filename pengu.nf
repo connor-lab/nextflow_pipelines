@@ -125,8 +125,7 @@ process TrimReads {
     set dataset_id, project, file(forward), file(reverse) from InputReads
  
     output:
-    set dataset_id, project, file("*_val_1.fq.gz"), file("*_val_2.fq.gz") into TrimmedReadsLength, TrimmedReadsQC, TrimmedReadsHIV, TrimmedReadsFLU, TrimmedReadsWCMTB, TrimmedReadsARG, TrimmedReadsDIGCD
-    set dataset_id, project into TrimmingDone
+    set dataset_id, project, file("*_val_1.fq.gz"), file("*_val_2.fq.gz") optional true into TrimmedReadsLength, TrimmedReadsQC, TrimmedReadsHIV, TrimmedReadsFLU, TrimmedReadsWCMTB, TrimmedReadsARG, TrimmedReadsDIGCD
     set project, file("*trimming_report.txt") into TrimGaloreResults
     set project, file("*_fastqc.{zip,html}") into TrimGaloreFastQCReports
     
