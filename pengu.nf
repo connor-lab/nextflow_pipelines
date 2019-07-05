@@ -67,7 +67,7 @@ process IlluminaInteropStats {
 
     script:
       """
-      summary --csv=1 ${interopDir} > ${RunID}.summary.csv
+      interop_summary --csv=1 ${interopDir} > ${RunID}.summary.csv
       """
 }
 
@@ -126,8 +126,8 @@ process TrimReads {
  
     output:
     set dataset_id, project, file("*_val_1.fq.gz"), file("*_val_2.fq.gz") optional true into TrimmedReadsLength, TrimmedReadsQC, TrimmedReadsHIV, TrimmedReadsFLU, TrimmedReadsWCMTB, TrimmedReadsARG, TrimmedReadsDIGCD
-    set project, file("*trimming_report.txt") into TrimGaloreResults
-    set project, file("*_fastqc.{zip,html}") into TrimGaloreFastQCReports
+    set project, file("*trimming_report.txt") optional true into TrimGaloreResults
+    set project, file("*_fastqc.{zip,html}") optional true into TrimGaloreFastQCReports
     
 
     script:
