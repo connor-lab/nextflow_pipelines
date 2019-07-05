@@ -1406,7 +1406,7 @@ process mashDistanceSummary {
 
 snapperDBInputUnfiltered = snapperClosestRef.combine(distanceFilter, by:0).combine(DIGCDTrimmedReadsSnapperDB, by: 0).combine(DIGCDSnapperDBConfDir).combine(DIGCDSnapperDBRefDir)
 
-snapperDBInputfilterPass = Channel.create()
+snapperDBrenameReads = Channel.create()
 
 snapperDBInputfilterFail = Channel.create()
 
