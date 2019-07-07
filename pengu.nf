@@ -687,7 +687,7 @@ process SeparateFLUSegmentReads {
     set dataset_id, project, file(forward), file(reverse), segment, file(ref) from FLUTrimmedReads.combine(FLURef)
 
     output:
-    set dataset_id, segment, file("${dataset_id}.${segment}_1.fq.gz"), file("${dataset_id}.${segment}_2.fq.gz") into FLUCleanReadsAssembly,FLUCleanReadsShiver
+    set dataset_id, project, segment, file("${dataset_id}.${segment}_1.fq.gz"), file("${dataset_id}.${segment}_2.fq.gz") into FLUCleanReadsAssembly,FLUCleanReadsShiver
 
     script:
     proctag = dataset_id + "-" + segment
@@ -706,11 +706,11 @@ process AssembleFLUReads {
     cpus 4
 
     input:
-    set dataset_id, segment, file(forward), file(reverse) from FLUCleanReadsAssembly
+    set dataset_id, project, segment, file(forward), file(reverse) from FLUCleanReadsAssembly
 
     output:
-    set dataset_id, segment, file("${dataset_id}.${segment}.iva.fa") optional true into FLUIVAAssembly
-    set dataset_id, file("*.assembly.failed") optional true into FLUIVAFail
+    set dataset_id, project, segment, file("${dataset_id}.${segment}.iva.fa") optional true into FLUIVAAssembly
+    set project, file("*.assembly.failed") optional true into FLUIVAFail
 
     script:
     proctag = dataset_id + "-" + segment
@@ -727,10 +727,9 @@ process AssembleFLUReads {
 
 fluAssemblyShiver = Channel.create()
 
-fluAssemblyNotShiver = Channel.create()
+fluAssemblyNotShiverReconstitute = Channel.create()
 
-FLUIVAAssembly.choice( fluAssemblyShiver, fluAssemblyNotShiver){ it[1] in params.shiversegs ? 0 : 1 }
-
+FLUIVAAssembly.choice( fluAssemblyShiver, fluAssemblyNotShiverReconstitute){ it[2] in params.shiversegs ? 0 : 1 }
 
 process shiverFLU {
     tag { proctag }
@@ -740,10 +739,10 @@ process shiverFLU {
     cpus 4
 
     input:
-    set dataset_id, segment, file(assembly), file(forward), file(reverse), file(shiverconf), file(shiverinit) from fluAssemblyShiver.combine(FLUCleanReadsShiver, by: [ 0 , 1 ]).combine(FLUShiverConf).combine(FLUShiverInit)
+    set dataset_id, project, segment, file(assembly), file(forward), file(reverse), file(shiverconf), file(shiverinit) from fluAssemblyShiver.combine(FLUCleanReadsShiver, by: [ 0, 1, 2 ]).combine(FLUShiverConf).combine(FLUShiverInit)
 
     output:
-    set dataset_id, file("${dataset_id}.${segment}.shiver.fa") into fluAssemblyReconstitute
+    set dataset_id, project, segment, file("${dataset_id}.${segment}.shiver.fa") into fluAssemblyShiverReconstitute
 
     script:
     proctag = dataset_id + "-" + segment
@@ -759,24 +758,7 @@ process shiverFLU {
 }
 
 
-process removeSegmentFLU {
-    tag{ proctag }
-
-    executor 'local'
-
-    stageInMode 'copy'
-
-    input:
-    set dataset_id, segment, file(assembly) from fluAssemblyNotShiver
-
-    output:
-    set dataset_id, file("${dataset_id}.${segment}.iva.fa") into fluAssemblyNotShiverClean
-
-    script:
-    proctag = dataset_id + "-" + segment
-    """
-    """
-}
+fluAssemblyNotShiverReconstitute.mix(fluAssemblyShiverReconstitute).map{ [ it[0], it[1], it[3] ] }.groupTuple(by: [ 0, 1]).set{  fluAssemblyReconstitute }
 
 
 process ReconstituteFLUGenome {
@@ -787,7 +769,7 @@ process ReconstituteFLUGenome {
     publishDir "${outDir}/${project}/${RunID}/analysis/assembly", pattern: "${dataset_id}.fasta", mode: 'copy'
 
     input:
-    set dataset_id, file('*') from fluAssemblyReconstitute.concat(fluAssemblyNotShiverClean).groupTuple()
+    set dataset_id, project, file('*') from fluAssemblyReconstitute
 
     output:
     file "${dataset_id}.fasta"
@@ -805,7 +787,7 @@ process CollectFailedFLUAssemblies {
     publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "IVA.assembly.failed.txt", mode: 'copy'
 
     input:
-    file "*" from FLUIVAFail.collect()
+    set project, file("*") from FLUIVAFail.groupTuple()
 
     output:
     file "IVA.assembly.failed.txt"
