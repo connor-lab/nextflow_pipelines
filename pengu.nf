@@ -339,7 +339,7 @@ ShiverInit = Channel.fromPath( "${params.shiverinit}", type: 'dir', maxDepth: 1)
 ShiverConf = Channel.fromPath( "${params.shiverconf}" )
 
 // Minor variant frequency list
-MinVarFreq = Channel.from(params.minvarfreq)
+Channel.from(params.minvarfreq).set{ MinVarFreq }
 
 process CleanHIVReads {
     tag { dataset_id }
@@ -472,6 +472,7 @@ process GapfillHIVContigs {
 }}
 else {
 
+
 process HIVShiver {
     tag { dataset_id }
 
@@ -483,7 +484,8 @@ process HIVShiver {
     set dataset_id, project, file(assembly), file(forward), file(reverse), file(shiverconf), file(shiverinit) from HIVIVAAssembly.join(HIVCleanReadsPolishing, by: [0,1]).combine(ShiverConf).combine(ShiverInit)
 
     output:
-    set dataset_id, file("${dataset_id}.shiver.fa") into HIVAssemblyBAM, HIVAssemblyVariants
+    set dataset_id, project, file("${dataset_id}.shiver.fa") into HIVAssemblyBAM, HIVAssemblyVariants
+
 
     script:
     """
@@ -507,7 +509,7 @@ process HIVMappingVariantCalling {
     container "file:///${params.simgdir}/minimap2.simg"
 
     input:
-    set dataset_id, project, file(forward), file(reverse), file(assembly) from HIVCleanReadsVariantCalling.join(HIVAssemblyBAM)
+    set dataset_id, project, file(forward), file(reverse), file(assembly) from HIVCleanReadsVariantCalling.join(HIVAssemblyBAM, by: [0,1])
 
     output:
     set dataset_id, project, file("${dataset_id}.nodups.bam") into HIVMappingNoDupsBAM
@@ -521,7 +523,6 @@ process HIVMappingVariantCalling {
 }
 
 
-if(params.variantstrategy.toLowerCase() == 'varscan'){
 process HIVVariantCallingVarScan {
     tag { dataset_id }
 
@@ -532,7 +533,7 @@ process HIVVariantCallingVarScan {
     publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/vcf", pattern: "${dataset_id}.${minvarfreq}.consensus.vcf", mode: 'copy'
 
     input:
-    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants).combine(MinVarFreq)
+    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants, by: [0,1]).combine(MinVarFreq)
 
     output:
     set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariants
@@ -556,10 +557,8 @@ process HIVVariantCallingVarScan {
     sed -i '/^>/ s/\$/ [Variant caller: ${params.variantstrategy}] [Minor variants bases ONLY] [Variant frequency: ${minvarfreq}] /' ${dataset_id}.${minvarfreq}.minor.fa
     """
 }
-}
 
-
-if(params.variantstrategy == 'bcftools'){
+/*
 process HIVVariantCallingBCFtools {
     tag { dataset_id }
 
@@ -571,10 +570,10 @@ process HIVVariantCallingBCFtools {
 
 
     input:
-    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants).combine(MinVarFreq)
+    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAMBCFtools.join(HIVAssemblyVariantsBCFtools, by: [0,1]).combine(MinVarFreqBCFtools)
 
     output:
-    set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariants
+    set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariantsBCFtools
     file "${dataset_id}.${minvarfreq}.minor.fa"
     file "${dataset_id}.${minvarfreq}.consensus.vcf"
 
@@ -582,7 +581,7 @@ process HIVVariantCallingBCFtools {
     """
     samtools faidx $assembly
     bcftools mpileup --redo-BAQ --min-MQ 20 -Ou -f $assembly ${dataset_id}.nodups.bam | bcftools call --ploidy 1 -mv -Ov | bcftools view -q ${minvarfreq}:nref -Oz -o ${dataset_id}.variants.vcf.gz
-    zcat ${dataset_is}.variants.vcf.gz > ${dataset_id}.${minvarfreq}.consensus.vcf
+    zcat ${dataset_id}.variants.vcf.gz > ${dataset_id}.${minvarfreq}.consensus.vcf
     tabix ${dataset_id}.variants.vcf.gz
     bcftools consensus -f $assembly ${dataset_id}.variants.vcf.gz --output ${dataset_id}.${minvarfreq}.minor.fa
     bcftools consensus -I -f $assembly ${dataset_id}.variants.vcf.gz --output ${dataset_id}.${minvarfreq}.iupac.consensus.fa
@@ -592,9 +591,7 @@ process HIVVariantCallingBCFtools {
     sed -i '/^>/ s/\$/ [Variant caller: ${params.variantstrategy}] [Minor variants bases ONLY] [Variant frequency: ${minvarfreq}] /' ${dataset_id}.${minvarfreq}.minor.fa
     """
 }
-}
 
-if(params.variantstrategy == 'lofreq'){
 process HIVVariantCallingLoFreq {
     tag { dataset_id }
 
@@ -605,10 +602,10 @@ process HIVVariantCallingLoFreq {
     publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/vcf", pattern: "${dataset_id}.${minvarfreq}.consensus.vcf", mode: 'copy'
 
     input:
-    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants).combine(MinVarFreq)
+    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAMLofreq.join(HIVAssemblyVariantsLofreq, by: [0,1]).combine(MinVarFreqLofreq)
 
     output:
-    set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariants
+    set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariantsLofreq
     file "${dataset_id}.${minvarfreq}.minor.fa"
     file "${dataset_id}.${minvarfreq}.consensus.vcf"
 
@@ -626,9 +623,11 @@ process HIVVariantCallingLoFreq {
     sed -i '/^>/ s/\$/ [Variant caller: ${params.variantstrategy}] [Minor variants bases ONLY] [Variant frequency: ${minvarfreq}] /' ${dataset_id}.${minvarfreq}.minor.fa
     """
 }
-}
+*/
 
-HIVAssemblyWithSelectedMinVarFreq = HIVAssemblyWithVariants.filter{ it[1] == params.selectedminvarfreq }
+
+
+HIVAssemblyWithSelectedMinVarFreq = HIVAssemblyWithVariants.filter{ it[2] == params.selectedminvarfreq }
 
 process HIVMakeResistanceReport {
     tag { dataset_id }
@@ -639,11 +638,8 @@ process HIVMakeResistanceReport {
     publishDir "${outDir}/${project}/${RunID}/analysis/05-generate_report", pattern: "${dataset_id}.rtf", mode: 'copy'
     publishDir "${outDir}/${project}/reports/${YearMonth}", pattern: "${dataset_id}.rtf", mode: 'copy'
 
-    //queue 'internet'
-
     input:
     set dataset_id, project, minvarfreq, file(variantassembly) from HIVAssemblyWithSelectedMinVarFreq
-//    set dataset_id, file(stanfordjson) from HIVDBReportJson
 
     output:
     file("${dataset_id}.json")
@@ -655,6 +651,7 @@ process HIVMakeResistanceReport {
     buildreport.pl -i ${variantassembly} -n ${dataset_id} -l PHW_Cardiff
     """
 }
+
 
 // ** ## FLU PIPELINE ## ** //
 
