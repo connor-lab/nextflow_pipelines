@@ -23,7 +23,9 @@ RunID = "${RunIDCmd}".execute().text.replaceAll(/\n/, "").toString()
 // OUTPUT DIR
 
 if ( RunID == "M04531_123_000000000-T3STP" ) {
-    outDir = "${params.testoutdir}"
+    Date today = new Date()
+    YearMonthDay = today.format( "yyyy-MM-dd_HH-mm-ss" )
+    outDir = "${params.testoutdir}/${YearMonthDay}"
      } 
 else {
     outDir = "${params.outdir}"
@@ -322,9 +324,11 @@ YearMonth = date.format( "yyyy/MM-MMM" )
 
 
 // Make reports directory if it doesn't exist
+/*
 ReportsDir = file("/mnt/datastore/hiv/reports/${YearMonth}")
 mkdirResult = ReportsDir.mkdirs()
 println mkdirResult ? "Made new reports directory" : "Cannot create directory: $ReportsDir"
+*/
 
 // Setup references
 HIVComp = Channel.fromPath( "${params.subref}" )
@@ -348,7 +352,7 @@ process CleanHIVReads {
     set dataset_id, project, file(forward), file(reverse), file(ref) from HIVTrimmedReads.combine(HIVComp)
 
     output:
-    set dataset_id, file("${dataset_id}.clean_1.fq.gz"), file("${dataset_id}.clean_2.fq.gz") into HIVCleanReadsAssembly, HIVCleanReadsPolishing, HIVCleanReadsVariantCalling
+    set dataset_id, project, file("${dataset_id}.clean_1.fq.gz"), file("${dataset_id}.clean_2.fq.gz") into HIVCleanReadsAssembly, HIVCleanReadsPolishing, HIVCleanReadsVariantCalling
 
     script:
     """
@@ -362,13 +366,13 @@ process SampleHIVReads {
 
     container "file:///${params.simgdir}/bbtools.simg"
 
-    publishDir "${params.hivdir}/${RunID}/analysis/01-clean_subsampled_reads", pattern: '*.clean.sampled_{1,2}.fq.gz', mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/01-clean_subsampled_reads", pattern: '*.clean.sampled_{1,2}.fq.gz', mode: 'copy'
 
     input:
-    set dataset_id, file(forward), file(reverse) from HIVCleanReadsAssembly
+    set dataset_id, project, file(forward), file(reverse) from HIVCleanReadsAssembly
 
     output:
-    set dataset_id, file("${dataset_id}.clean.sampled_1.fq.gz"), file("${dataset_id}.clean.sampled_2.fq.gz") into HIVSampledReadsAssembly
+    set dataset_id, project, file("${dataset_id}.clean.sampled_1.fq.gz"), file("${dataset_id}.clean.sampled_2.fq.gz") into HIVSampledReadsAssembly
 
     script:
     """
@@ -381,18 +385,18 @@ process SampleHIVReads {
 process AssembleHIVReads {
     tag { dataset_id }
 
-    publishDir "/mnt/datastore/hiv/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.iva.fa", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.iva.fa", mode: 'copy'
  
     container "file:///${params.simgdir}/iva.simg"
 
     cpus 4
 
     input:
-    set dataset_id, file(forward), file(reverse) from HIVSampledReadsAssembly
+    set dataset_id, project, file(forward), file(reverse) from HIVSampledReadsAssembly
 
     output:
-    set dataset_id, file("${dataset_id}.iva.fa") optional true into HIVIVAAssembly
-    set dataset_id, file("*.assembly.failed") optional true into HIVIVAFail
+    set dataset_id, project, file("${dataset_id}.iva.fa") optional true into HIVIVAAssembly
+    set project, file("*.assembly.failed") optional true into HIVIVAFail
 
     script:
     """
@@ -404,14 +408,13 @@ process AssembleHIVReads {
     """
 }
 
-
 process CollectFailedHIVAssemblies {
     tag { RunID }
 
-    publishDir "${params.hivdir}/${RunID}/analysis/", pattern: "IVA.assembly.failed.txt", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "IVA.assembly.failed.txt", mode: 'copy'
 
     input:
-    file "*" from HIVIVAFail.collect()
+    set project, file("*") from HIVIVAFail.groupTuple()
 
     output:
     file "IVA.assembly.failed.txt"
@@ -430,10 +433,10 @@ process OrderHIVContigs {
     container "file:///${params.simgdir}/assembly_improvement.simg"
 
     input:
-    set dataset_id, file(assembly), file(ref) from HIVIVAAssembly.combine(HIVHXB2)
+    set dataset_id, project, file(assembly), file(ref) from HIVIVAAssembly.combine(HIVHXB2)
 
     output:
-    set dataset_id, file("${dataset_id}.ordered.fa") into HIVIVAAssemblyOrdered
+    set dataset_id, project, file("${dataset_id}.ordered.fa") into HIVIVAAssemblyOrdered
 
     script:
     """
@@ -446,17 +449,17 @@ process OrderHIVContigs {
 process GapfillHIVContigs {
     tag { dataset_id }
 
-    publishDir "${params.hivdir}/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.polished.fa", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.polished.fa", mode: 'copy'
 
     container "file:///${params.simgdir}/assembly_improvement.simg"
 
     cpus 4
 
     input:
-    set dataset_id, file(assembly), file(forward), file(reverse) from HIVIVAAssemblyOrdered.join(HIVCleanReadsPolishing)
+    set dataset_id, project, file(assembly), file(forward), file(reverse) from HIVIVAAssemblyOrdered.join(HIVCleanReadsPolishing)
     
     output:
-    set dataset_id, file("${dataset_id}.polished.fa") into HIVAssemblyBAM, HIVAssemblyVariants
+    set dataset_id, project, file("${dataset_id}.polished.fa") into HIVAssemblyBAM, HIVAssemblyVariants
 
     script:
     // NEED TO TOUCH FILES OR GAP2SEQ FALLS OVER ON CONTIGS WITH NO GAP
@@ -474,10 +477,10 @@ process HIVShiver {
 
     container "file:///${params.simgdir}/shiver.simg"
 
-    publishDir "${params.hivdir}/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.shiver.fa", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.shiver.fa", mode: 'copy'
    
     input:
-    set dataset_id, file(assembly), file(forward), file(reverse), file(shiverconf), file(shiverinit) from HIVIVAAssembly.join(HIVCleanReadsPolishing).combine(ShiverConf).combine(ShiverInit)
+    set dataset_id, project, file(assembly), file(forward), file(reverse), file(shiverconf), file(shiverinit) from HIVIVAAssembly.join(HIVCleanReadsPolishing, by: [0,1]).combine(ShiverConf).combine(ShiverInit)
 
     output:
     set dataset_id, file("${dataset_id}.shiver.fa") into HIVAssemblyBAM, HIVAssemblyVariants
@@ -504,10 +507,10 @@ process HIVMappingVariantCalling {
     container "file:///${params.simgdir}/minimap2.simg"
 
     input:
-    set dataset_id, file(forward), file(reverse), file(assembly) from HIVCleanReadsVariantCalling.join(HIVAssemblyBAM)
+    set dataset_id, project, file(forward), file(reverse), file(assembly) from HIVCleanReadsVariantCalling.join(HIVAssemblyBAM)
 
     output:
-    set dataset_id, file("${dataset_id}.nodups.bam") into HIVMappingNoDupsBAM
+    set dataset_id, project, file("${dataset_id}.nodups.bam") into HIVMappingNoDupsBAM
 
     script:
     """
@@ -524,15 +527,15 @@ process HIVVariantCallingVarScan {
 
     container "file:///${params.simgdir}/variant_calling.simg"
 
-    publishDir "${params.hivdir}/${RunID}/analysis/03-call_variants/fasta/minor_variants", pattern: "${dataset_id}.${minvarfreq}.minor.fa", mode: 'copy'
-    publishDir "${params.hivdir}/${RunID}/analysis/03-call_variants/fasta/IUPAC", pattern: "${dataset_id}.${minvarfreq}.iupac.consensus.fa", mode: 'copy'
-    publishDir "${params.hivdir}/${RunID}/analysis/03-call_variants/vcf", pattern: "${dataset_id}.${minvarfreq}.consensus.vcf", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/fasta/minor_variants", pattern: "${dataset_id}.${minvarfreq}.minor.fa", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/fasta/IUPAC", pattern: "${dataset_id}.${minvarfreq}.iupac.consensus.fa", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/vcf", pattern: "${dataset_id}.${minvarfreq}.consensus.vcf", mode: 'copy'
 
     input:
-    set dataset_id, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants).combine(MinVarFreq)
+    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants).combine(MinVarFreq)
 
     output:
-    set dataset_id, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariants
+    set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariants
     file "${dataset_id}.${minvarfreq}.minor.fa"
     file "${dataset_id}.${minvarfreq}.consensus.vcf"
 
@@ -562,16 +565,16 @@ process HIVVariantCallingBCFtools {
 
     container "file:///${params.simgdir}/variant_calling.simg"
 
-    publishDir "${params.hivdir}/${RunID}/analysis/03-call_variants/fasta/minor_variants", pattern: "${dataset_id}.${minvarfreq}.minor.fa", mode: 'copy'
-    publishDir "${params.hivdir}/${RunID}/analysis/03-call_variants/fasta/IUPAC", pattern: "${dataset_id}.${minvarfreq}.iupac.consensus.fa", mode: 'copy'
-    publishDir "${params.hivdir}/${RunID}/analysis/03-call_variants/vcf", pattern: "${dataset_id}.${minvarfreq}.consensus.vcf", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/fasta/minor_variants", pattern: "${dataset_id}.${minvarfreq}.minor.fa", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/fasta/IUPAC", pattern: "${dataset_id}.${minvarfreq}.iupac.consensus.fa", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/vcf", pattern: "${dataset_id}.${minvarfreq}.consensus.vcf", mode: 'copy'
 
 
     input:
-    set dataset_id, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants).combine(MinVarFreq)
+    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants).combine(MinVarFreq)
 
     output:
-    set dataset_id, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariants
+    set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariants
     file "${dataset_id}.${minvarfreq}.minor.fa"
     file "${dataset_id}.${minvarfreq}.consensus.vcf"
 
@@ -597,15 +600,15 @@ process HIVVariantCallingLoFreq {
 
     container "file:///${params.simgdir}/variant_calling.simg"
 
-    publishDir "${params.hivdir}/${RunID}/analysis/03-call_variants/fasta/minor_variants", pattern: "${dataset_id}.${minvarfreq}.minor.fa", mode: 'copy'
-    publishDir "${params.hivdir}/${RunID}/analysis/03-call_variants/fasta/IUPAC", pattern: "${dataset_id}.${minvarfreq}.iupac.consensus.fa", mode: 'copy'
-    publishDir "${params.hivdir}/${RunID}/analysis/03-call_variants/vcf", pattern: "${dataset_id}.${minvarfreq}.consensus.vcf", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/fasta/minor_variants", pattern: "${dataset_id}.${minvarfreq}.minor.fa", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/fasta/IUPAC", pattern: "${dataset_id}.${minvarfreq}.iupac.consensus.fa", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/vcf", pattern: "${dataset_id}.${minvarfreq}.consensus.vcf", mode: 'copy'
 
     input:
-    set dataset_id, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants).combine(MinVarFreq)
+    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants).combine(MinVarFreq)
 
     output:
-    set dataset_id, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariants
+    set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariants
     file "${dataset_id}.${minvarfreq}.minor.fa"
     file "${dataset_id}.${minvarfreq}.consensus.vcf"
 
@@ -632,14 +635,14 @@ process HIVMakeResistanceReport {
 
     container "file:///${params.simgdir}/sierrapy.simg"
 
-    publishDir "${params.hivdir}/${RunID}/analysis/04-call_resistance", pattern: "${dataset_id}.json", mode: 'copy'
-    publishDir "${params.hivdir}/${RunID}/analysis/05-generate_report", pattern: "${dataset_id}.rtf", mode: 'copy'
-    publishDir "${params.hivdir}/reports/${YearMonth}", pattern: "${dataset_id}.rtf", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/04-call_resistance", pattern: "${dataset_id}.json", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/05-generate_report", pattern: "${dataset_id}.rtf", mode: 'copy'
+    publishDir "${outDir}/${project}/reports/${YearMonth}", pattern: "${dataset_id}.rtf", mode: 'copy'
 
     //queue 'internet'
 
     input:
-    set dataset_id, minvarfreq, file(variantassembly) from HIVAssemblyWithSelectedMinVarFreq
+    set dataset_id, project, minvarfreq, file(variantassembly) from HIVAssemblyWithSelectedMinVarFreq
 //    set dataset_id, file(stanfordjson) from HIVDBReportJson
 
     output:
@@ -781,7 +784,7 @@ process ReconstituteFLUGenome {
 
     container "file:///${params.simgdir}/seqtk.simg"
 
-    publishDir "${params.fludir}/${RunID}/analysis/assembly", pattern: "${dataset_id}.fasta", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/assembly", pattern: "${dataset_id}.fasta", mode: 'copy'
 
     input:
     set dataset_id, file('*') from fluAssemblyReconstitute.concat(fluAssemblyNotShiverClean).groupTuple()
@@ -799,7 +802,7 @@ process ReconstituteFLUGenome {
 process CollectFailedFLUAssemblies {
     tag { RunID }
 
-    publishDir "${params.fludir}/${RunID}/analysis/", pattern: "IVA.assembly.failed.txt", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "IVA.assembly.failed.txt", mode: 'copy'
 
     input:
     file "*" from FLUIVAFail.collect()
@@ -1033,6 +1036,9 @@ process makeUploadDir {
 
     executor 'local'
 
+    when:
+    !( RunID ==~ /M04531_123_000000000-T3STP/ )
+
     input:
     set dataset_id, project, file(forward), file(reverse) from WCMMakeUploadDir.first()
 
@@ -1049,6 +1055,9 @@ process WCMGenerateMD5 {
     tag { dataset_id }
 
     cpus 1
+
+    when:
+    !( RunID ==~ /M04531_123_000000000-T3STP/ )
 
     input:
     set dataset_id, project, file(forward), file(reverse) from WCMTBTrimmedReadsMD5.filter{ it[0].toUpperCase() =~ /NTC/ ? false : true }
@@ -1080,6 +1089,9 @@ process WCMUploadFiles {
     tag { dataset_id }
 
     cpus 1
+
+    when:
+    !( RunID ==~ /M04531_123_000000000-T3STP/ )
 
     //queue 'internet'
 
