@@ -6,9 +6,6 @@ allFastq = "${params.dir}/Data/Intensities/BaseCalls/"
 // INPUT RUN FOLDER
 runDir = "${params.dir}"
 
-// OUTPUT DIR
-outDir = "${params.outdir}"
-
 // MultiQC config file
 multiQCConf = "${params.multiqcconf}"
 
@@ -22,6 +19,15 @@ largestFile = allFilesBySize[0]
 // THIS IS HORRIBLE BUT IT WORKS - CALL BASH SCRIPT TO GET RUNID
 RunIDCmd = "getRunID ${largestFile}"
 RunID = "${RunIDCmd}".execute().text.replaceAll(/\n/, "").toString()
+
+// OUTPUT DIR
+
+if ( RunID == "M04531_123_000000000-T3STP" ) {
+    outDir = "${params.testoutdir}"
+     } 
+else {
+    outDir = "${params.outdir}"
+}
 
 // PROJECT ID LIST - these should map to shares and are defined in config file
 projects = params.projectlist

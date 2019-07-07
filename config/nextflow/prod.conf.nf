@@ -9,6 +9,13 @@ includeConfig 'prod_slurmqueue.conf'
 // Path to output directory (containing project directories)
 outdir = '{{ nfs_directory }}'
 
+// Path to output directory for pipeline testing
+testoutdir = '{{ nfs_directory }}/testpipe'
+
+
+params.outdir = "${outdir}"
+params.testoutdir = "${testoutdir}"
+
 
 // # SLURM #
 // Make sure SLURM executes jobs
@@ -36,7 +43,7 @@ params.backupPath = '{{ nextflow_backuppath }}'
 
 // # Projects #
 // Project list in groovy list format
-params.projectlist = ['argab', 'argid', 'digcd', 'digid', 'flu', 'hiv', 'wcmtb', 'wcmid' , 'testpipe' ]
+params.projectlist = ['argab', 'argid', 'digcd', 'digid', 'flu', 'hiv', 'wcmtb', 'wcmid' , 'ent' ]
 
 
 // # Output #
