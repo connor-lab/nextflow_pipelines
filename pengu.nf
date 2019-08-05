@@ -31,6 +31,7 @@ else {
     outDir = "${params.outdir}"
 }
 
+
 // PROJECT ID LIST - these should map to shares and are defined in config file
 projects = params.projectlist
 
@@ -48,9 +49,9 @@ Channel.fromPath( runDir, type: 'dir', maxDepth: 1 )
        .into{ IlluminaRunDir ; backupRunDir }
 
 // Channel for centrifuge database files, so that they are symlinked into WORKDIR
-Channel
-    .fromPath( centrifugeDB )
-    .set{ CentrifugeRefs }
+
+Channel.fromPath( centrifugeDB ).set{ CentrifugeRefs }
+
 
 // Channel for NCBI taxIDs for each project
 Channel
@@ -86,6 +87,8 @@ backupPath = params.backupPath
 
 process BackupRunDirectory {
     tag{RunID}
+
+    when: workflow.profile == 'prod'
 
     input:
     file(runDir) from backupRunDir
@@ -147,7 +150,6 @@ process MeanTrimmedReadLength {
       zcat $forward $reverse | seqtk fqchk - | head -n1 | cut -d ";" -f3 | cut -d " " -f3 | tr -d '\n'
       """
 }
-
 
 process Centrifuge {
     tag { dataset_id }
@@ -312,6 +314,7 @@ process Krona {
       ktImportTaxonomy -o centrifuge_report.html -m 5 -s 7 *_centrifugereport.tab
       """
 }
+
 
 // ** ## HIV PIPELINE ## ** //
 
@@ -1243,9 +1246,9 @@ TrimmedReadsDIGCD.filter { it[1] ==~ 'digcd' }.into{ DIGCDTrimmedReadsShovill; D
 
 DIGCDMashRef = Channel.fromPath( "${params.digcdmashref}" )
 
-DIGCDSnapperDBConfDir = Channel.fromPath( "${params.digcdsnapperdbconfdir}", type: 'dir', maxDepth: 1)
+DIGCDPHEnixConf = Channel.fromPath( "${params.digcdphenixconf}")
 
-DIGCDSnapperDBRefDir = Channel.fromPath( "${params.digcdsnapperdbrefdir}", type: 'dir', maxDepth: 1)
+DIGCDRefDir = Channel.fromPath( "${params.digcdrefdir}", type: 'dir', maxDepth: 1)
 
 float maxmashdist = Float.parseFloat(params.digcdmaxmashdist)
 
@@ -1383,7 +1386,7 @@ process mashDistanceSummary {
     """
 }
 
-snapperDBInputUnfiltered = snapperClosestRef.combine(distanceFilter, by:0).combine(DIGCDTrimmedReadsSnapperDB, by: 0).combine(DIGCDSnapperDBConfDir).combine(DIGCDSnapperDBRefDir)
+snapperDBInputUnfiltered = snapperClosestRef.combine(distanceFilter, by:0).combine(DIGCDTrimmedReadsSnapperDB, by: 0).combine(DIGCDPHEnixConf).combine(DIGCDRefDir)
 
 snapperDBrenameReads = Channel.create()
 
@@ -1393,7 +1396,7 @@ snapperDBInputUnfiltered.choice( snapperDBrenameReads , snapperDBInputfilterFail
                                                                                           dist <= maxmashdist ? 0 : 1 }
 
 
-process renameReadsForSnapperDB {
+process renameReadsForPHEnix {
     tag { dataset_id }
 
     input:
@@ -1411,57 +1414,56 @@ process renameReadsForSnapperDB {
 }
 
 
-process snapperDBfastqToVCF {
+process PHEnixVariantCalling {
     tag { dataset_id }
 
     publishDir "${outDir}/${project}/${RunID}/analysis/variant_calling/", pattern: "*vcf*", mode: 'copy'
 
-    container "file:///${params.simgdir}/snapperdb.simg"
+    container "file:///${params.simgdir}/snapperdb_v3.simg"
 
     cpus 4
 
     input:
-    set dataset_id, ref, distance, project, file(forward), file(reverse), file(configdir), file(refdir) from snapperDBInputfilterPass
+    set dataset_id, ref, distance, project, file(forward), file(reverse), file(config), file(refdir) from snapperDBInputfilterPass
 
     output:
     file("*vcf*")
-    set dataset_id, ref, project, file("*.filtered.vcf"), file("*.vcf.idx") into snapperDBVCFtoDB
+    set dataset_id, ref, project, file("*.json.gz"), file("${refdir}") into snapperDBAddSampleToDB
 
     script:
-    confname = ref.take(ref.lastIndexOf('.'))
+    snapperDBname = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "")
     """
-    export GASTROSNAPPER_CONFPATH=${configdir}
-    export GASTROSNAPPER_REFPATH=${refdir}
-    run_snapperdb.py fastq_to_vcf -c ${confname}.txt ${forward} ${reverse}
-    mv snpdb/*.vcf* .
+    phenix.py run_snp_pipeline --sample-name ${snapperDBname} --config ${config} --outdir phenix --json --reference ${refdir}/${ref} -r1 ${forward} -r2 ${reverse}
+    mv phenix/* .
     """
 }
 
-/*
-process snapperDBVCFtoDB {
+
+process snapperAddSampleToDB {
    tag { dataset_id }
+
+   container "file:///${params.simgdir}/snapperdb_v3.simg"
 
    maxForks 1
 
    cpus 1
 
    input:
-   set dataset_id, ref, project, file(vcf), file(index), file(configdir), file(refdir) from snapperDBVCFtoDB
+   set dataset_id, ref, project, file(json), file(refdir) from snapperDBAddSampleToDB
 
    output:
    val ref into snapperDBupdateDistanceMatrix
-   val dataset_id into snapperDBupdateDistanceMatrixDummy
 
    script:
-   confname = ref.take(ref.lastIndexOf('.'))
+   refname = ref.take(ref.lastIndexOf('.'))
+   snapperDBname = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "")
    """
-   export GASTROSNAPPER_CONFPATH=${configdir}
-   export GASTROSNAPPER_REFPATH=${refdir}
-   run_snapperdb.py vcf_to_db -c ${confname}.txt ${vcf}
+   snapper3.py add_sample --input ${json} --format json --connstring "${params.snapperdbconnstring} dbname=${refname}" --refname ${refname} --min-coverage 30
+   snapper3.py cluster_sample --sample-name ${snapperDBname} --connstring "${params.snapperdbconnstring} dbname=${refname}" --with-registration --force-merge
    """
 }
 
-
+/*
 process snapperDBupdateDistanceMatrix {
    tag { confname }
 

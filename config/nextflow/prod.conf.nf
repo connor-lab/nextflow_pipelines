@@ -193,3 +193,10 @@ params.digcdsnapperdbconfdir = '{{ digcd_snapperdb_conf_dir }}'
 // Path to directory containing snapperdb reference files
 params.digcdsnapperdbrefdir = '{{ digcd_snapperdb_ref_dir }}'
 
+
+// SnapperDB config
+snapperDB_user = '{{ digcd_snapperdb_user }}'
+snapperDB_host = '{{ postgresql_master }}'
+snapperDB_password '{{ digcd_snapperdb_password }}'
+
+params.snapperdbconnstring = "user=${snapperDB_user} host=${snapperdb_host} password=${snapperDB_password}"
