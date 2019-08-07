@@ -175,3 +175,10 @@ snapperdb_host = "192.168.10.58"
 snapperdb_password = "snapperdb"
 params.snapperdbconnstring = "user=${snapperdb_user} host=${snapperdb_host} password=${snapperdb_password}"
 
+
+// DIGEST DB config
+params.digestdbconfig = 'config/digcd/digestDB.conf'
+
+
+// DIGEST pubMLST url
+params.digcdpubmlsturl = 'https://pubmlst.org/data/profiles/cdifficile.txt'
