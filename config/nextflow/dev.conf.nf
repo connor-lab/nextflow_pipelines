@@ -147,6 +147,16 @@ params.mykrobepanel = '201901'
 // Path to directory containing WCM kraken database
 params.wcmkrakendbdir = 'config/wcmid/mycobacterium_krakendb'
 
+// Name of H37Rv reference genome
+params.wcmrefgenome = 'H37Rv'
+
+// Path to H37Rv reference genome
+params.wcmH37Rvref = 'config/wcmid/PHEnix'
+
+
+// Path to PHEnix config
+params.wcmphenixconf = 'config/wcmid/PHEnix/phenix_conf.yaml'
+
 
 // ## *** ARGENT PIPELINE CONFIG *** ##
 // DB to use for Abricate resistance
