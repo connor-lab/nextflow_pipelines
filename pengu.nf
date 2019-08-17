@@ -1418,6 +1418,7 @@ process PHEnixVariantCalling {
     tag { dataset_id }
 
     publishDir "${outDir}/${project}/${RunID}/analysis/variant_calling/", pattern: "*vcf*", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/variant_calling/", pattern: "*json.gz", mode: 'copy'
 
     container "file:///${params.simgdir}/snapperdb_v3.simg"
 
