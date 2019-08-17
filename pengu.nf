@@ -803,11 +803,17 @@ process CollectFailedFLUAssemblies {
 // Setup WCM trimmed reads channel
 WCMTBTrimmedReads = TrimmedReadsWCMTB.filter { it[1] == 'wcmtb' || it[1] == 'wcmid' }
 
-WCMTBTrimmedReads.into{ WCMTBTrimmedReadsMD5; WCMTrimmedReadsTyping; WCMMakeUploadDir; WCMTrimmedReadsKraken; WCMTrimmedReadsShovill }
+WCMTBTrimmedReads.into{ WCMTBTrimmedReadsMD5; WCMTrimmedReadsTyping; WCMMakeUploadDir; WCMTrimmedReadsKraken; WCMTrimmedReadsShovill; WCMTrimmedReadsPostiveControlMapping }
 
 mykrobepanel = params.mykrobepanel
 
 WCMKrakenDB = params.wcmkrakendbdir
+
+WCMRefGenomeName = params.wcmrefgenome
+
+Channel.fromPath( "${params.wcmH37Rvref}", type: 'dir', maxDepth: 1).set{ wcmH37RvRefDir }
+
+Channel.fromPath( "${params.wcmphenixconf}" ).set{ wcmPHEnixConf }
 
 Channel
     .fromPath( WCMKrakenDB )
@@ -1002,7 +1008,7 @@ process typingMykrobeWCM {
 
     output:
     set dataset_id, project, file("${dataset_id}.json") into WCMTypingResistanceReport
-    file("${dataset_id}.csv")
+    set dataset_id, project, file("${dataset_id}.csv") into WCMTypingCsv
 
     script:
     """
@@ -1010,6 +1016,73 @@ process typingMykrobeWCM {
     json_to_tsv.py ${dataset_id}.json | sed 's/\\t/,/g' > ${dataset_id}.csv
     """
 }
+
+
+process PHEnixVariantCallingWCM {
+    tag { dataset_id }
+
+    publishDir "${outDir}/${project}/${RunID}/qc/positive_control", pattern: "*vcf*", mode: 'copy'
+
+    container "file:///${params.simgdir}/snapperdb_v3.simg"
+
+    cpus 4
+
+    input:
+    set dataset_id, project, file(forward), file(reverse), file(config), file(refdir) from WCMTrimmedReadsPostiveControlMapping.filter{ it[0] =~ /POS/ }.combine(wcmPHEnixConf).combine(wcmH37RvRefDir)
+
+    output:
+    set dataset_id, project, file("*vcf*") into WCMPositiveControlMappingSummary
+
+    script:
+    """
+    phenix.py run_snp_pipeline --sample-name ${dataset_id} --config ${config} --outdir phenix --reference ${refdir}/${WCMRefGenomeName}.fa -r1 ${forward} -r2 ${reverse}
+    mv phenix/* .
+    """
+}
+
+process PHEnixVariantCallingWCMSummary {
+    tag { dataset_id }
+
+    publishDir "${outDir}/${project}/${RunID}/qc/positive_control", pattern: "*.vcfstats", mode: 'copy'
+
+    container "file:///${params.simgdir}/rtg.simg"
+
+    cpus 4
+
+    input:
+    set dataset_id, project, file(vcf) from WCMPositiveControlMappingSummary
+
+    output:
+    set dataset_id, project, file("*vcfstats") into WCMPositiveControlSummary
+
+    script:
+    """
+    rtg vcfstats ${vcf} | sed 's/  *: /,/' > ${dataset_id}.vcfstats
+    """
+}
+
+process preparePositiveControlSummary {
+    tag { dataset_id }
+
+    publishDir "${outDir}/${project}/${RunID}/qc/positive_control/", pattern: "${dataset_id}.positive_control_summary.csv", mode: 'copy'
+
+    executor 'local'
+
+    cpus 1
+
+    input:
+    set dataset_id, project, file(vcfstats), file(mykrobecsv) from WCMPositiveControlSummary.join(WCMTypingCsv, by: [0 , 1])
+
+    output:
+    file("${dataset_id}.positive_control_summary.csv")
+
+    script:
+    """
+    echo -e "\n\n" >> ${mykrobecsv}
+    cat ${mykrobecsv} ${vcfstats} > ${dataset_id}.positive_control_summary.csv
+    """
+}
+
 
 
 if(params.wcmtransferupload == 'true'){
@@ -1242,7 +1315,7 @@ process callVirulenceARGENT {
 
 // Setup DIGCD trimmed reads channel
 
-TrimmedReadsDIGCD.filter { it[1] ==~ 'digcd' }.into{ DIGCDTrimmedReadsShovill; DIGCDTrimmedReadsSnapperDB }
+TrimmedReadsDIGCD.filter { it[1] ==~ 'digcd' }.set{ DIGCDTrimmedReadsRename }
 
 DIGCDMashRef = Channel.fromPath( "${params.digcdmashref}" )
 
@@ -1250,10 +1323,55 @@ DIGCDPHEnixConf = Channel.fromPath( "${params.digcdphenixconf}")
 
 DIGCDRefDir = Channel.fromPath( "${params.digcdrefdir}", type: 'dir', maxDepth: 1)
 
+Channel.fromPath( "${params.digestdbconfig}" ).into{ DIGCDDBConfigAddSample ; DIGCDDBConfigAddMLST ; DIGCDDBConfigAddClustercode ; DIGCDDBConfigAddDistance }
+
 float maxmashdist = Float.parseFloat(params.digcdmaxmashdist)
 
-process assembleShovillDIGCD {
+
+process renameReadsForPHEnix {
     tag { dataset_id }
+
+    input:
+    set dataset_id, project, file(forward), file(reverse) from DIGCDTrimmedReadsRename.filter{ it[0].toUpperCase() =~ /NEG/ ? false : true } 
+
+    output:
+    set snapperDBname, project, file("${snapperDBname}.R1.fq.gz"), file("${snapperDBname}.R2.fq.gz") into DIGCDTrimmedReadsShovill, DIGCDTrimmedReadsPHEnix
+    set snapperDBname, project into DIGCDDBInsertSample
+
+    script:
+    snapperDBname = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "")
+    """
+    mv ${forward} ${snapperDBname}.R1.fq.gz
+    mv ${reverse} ${snapperDBname}.R2.fq.gz
+    """
+}
+
+
+process addSamplesToDIGESTDB {
+   tag { snapperDBname }
+
+   container "file:///${params.simgdir}/pengu-ddt.simg"
+
+   cpus 1
+
+   input:
+   set snapperDBname, project, file(digestDBconfig) from DIGCDDBInsertSample.combine(DIGCDDBConfigAddSample)
+
+   output:
+   val snapperDBname into DIGCDDBAddMLST
+     
+   script:
+   """
+   echo "y_number,episode_number" > isolate.csv
+   echo -e \"${snapperDBname},,\\n\" >> isolate.csv
+   pengu-ddt -c ${digestDBconfig} add_isolates --isolate_csv isolate.csv
+   """
+}
+
+
+process assembleShovillDIGCD {
+
+    tag { snapperDBname }
 
     errorStrategy 'ignore'
 
@@ -1262,22 +1380,24 @@ process assembleShovillDIGCD {
     cpus 4
 
     input:
-    set dataset_id, project, file(forward), file(reverse) from DIGCDTrimmedReadsShovill
+    set snapperDBname, project, file(forward), file(reverse) from DIGCDTrimmedReadsShovill
 
     output:
-    set dataset_id, project, file("${dataset_id}.fasta") optional true into prokkaAssemblyDIGCD
-    set project, file("${dataset_id}.fasta") optional true into quastDIGCD
-    set dataset_id, project, file("${dataset_id}.fasta") into referenceSelection
+    set snapperDBname, project, file("${snapperDBname}.fasta") optional true into prokkaAssemblyDIGCD
+    set project, file("${snapperDBname}.fasta") optional true into quastDIGCD
+    set project, file("${snapperDBname}.fasta") optional true into MLSTAssemblyDIGCD
+    set snapperDBname, project, file("${snapperDBname}.fasta") optional true into referenceSelection
 
     script:
     """
     shovill --cpus ${task.cpus} --R1 ${forward} --R2 ${reverse} --minlen 500 --outdir shovill
-    mv shovill/contigs.fa ${dataset_id}.fasta
+    mv shovill/contigs.fa ${snapperDBname}.fasta
     """
 }
 
+
 process quastDIGCD {
-    tag { project }
+    tag { RunID }
 
     publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*_assembly_summary.csv", mode: 'copy'
 
@@ -1286,7 +1406,7 @@ process quastDIGCD {
     cpus 4
 
     input:
-    set project, file(assembly) from quastDIGCD.groupTuple(by: 0)
+    set project, file("*") from quastDIGCD.groupTuple()
 
     output:
     file("*_assembly_summary.csv")
@@ -1299,31 +1419,69 @@ process quastDIGCD {
 }
 
 process annotateProkkaDIGCD {
-    tag { dataset_id }
+    tag { snapperDBname }
 
-    publishDir "${outDir}/${project}/${RunID}/analysis/annotation/", pattern: "${dataset_id}/${dataset_id}.*", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/annotation/", pattern: "${snapperDBname}/${snapperDBname}.*", mode: 'copy'
 
     container "file:///${params.simgdir}/prokka.simg"
 
     cpus 4
 
     input:
-    set dataset_id, project, file(assembly) from prokkaAssemblyDIGCD.filter{ it[2].size()>1000 }
+    set snapperDBname, project, file(assembly) from prokkaAssemblyDIGCD.filter{ it[1].size()>1000 }
 
     output:
-    file("${dataset_id}/${dataset_id}.*")
+    file("${snapperDBname}/${snapperDBname}.*")
 
     script:
-    locusTag = dataset_id.tokenize("_")[0].tokenize("-")[1]
-    prefix = project.toUpperCase()
+    //locusTag = dataset_id.tokenize("_")[0].tokenize("-")[1]
+    //prefix = project.toUpperCase()
     """
-    prokka --outdir ${dataset_id} --locustag ${prefix}_${locusTag} --prefix ${dataset_id} --centre PHW --cpus ${task.cpus} --compliant ${assembly}
-    cp ${dataset_id}/${dataset_id}.fna ${dataset_id}.fna
+    prokka --outdir ${snapperDBname} --locustag ${snapperDBname} --prefix ${snapperDBname} --centre PHW --cpus ${task.cpus} --compliant ${assembly}
     """
 }
 
+
+process callMLSTDIGCD {
+    tag { RunID }
+
+    publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "*_MLST.csv", mode: 'copy'
+
+    container "file:///${params.simgdir}/mlst.simg"
+
+    input:
+    set project, file("*") from MLSTAssemblyDIGCD.groupTuple()
+
+    output:
+    file "*_MLST.csv" into DIGCDDBMLSTdata
+
+    script:
+    """
+    mlst --scheme cdifficile --nopath --csv *.fasta > ${RunID}_MLST.csv
+    """
+}
+
+process addMLSTToDIGESTDB {
+   tag { RunID }
+
+   container "file:///${params.simgdir}/pengu-ddt.simg"
+
+   cpus 1
+
+   input:
+   set file(mlstdata), file(digestDBconfig) from DIGCDDBMLSTdata.combine(DIGCDDBConfigAddMLST)
+
+   output:
+   
+   script: 
+   """
+   pengu-ddt -c ${digestDBconfig} update_mlst_db -p ${params.digcdpubmlsturl} -n cdifficile -m ${mlstdata}
+   """
+}
+
+
 process mashDistanceToRef {
-    tag { dataset_id }
+    tag { snapperDBname }
 
     publishDir "${outDir}/${project}/${RunID}/analysis/reference_selection/", pattern: "${dataset_id}_distance.csv", mode: 'copy'
 
@@ -1332,36 +1490,55 @@ process mashDistanceToRef {
     cpus 4
 
     input:
-    set dataset_id, project, file(assembly), file(ref) from referenceSelection.combine(DIGCDMashRef).filter{ it[2].size()>1000 }
+    set snapperDBname, project, file(assembly), file(ref) from referenceSelection.combine(DIGCDMashRef).filter{ it[2].size()>1000 }
 
     output:
-    set dataset_id, stdout into snapperClosestRef
-    file("${dataset_id}_distance.csv")
-    set project, file("${dataset_id}_closest.csv") into mashDistanceSummary
-    set project, dataset_id, file("${dataset_id}_closest.csv") into createDistanceFilter
+    set snapperDBname, project, stdout into snapperClosestRef
+    set snapperDBname, file("${snapperDBname}_distance.csv") into addDistanceToDB
+    set snapperDBname, project, file("${snapperDBname}_closest.csv") into mashDistanceSummary, mashDistanceFailSummary
+    set snapperDBname, project, file("${snapperDBname}_closest.csv") into createDistanceFilter
 
     script:
     """
     echo "#Reference,Query,Distance,P-value,Common kmers" > header.csv
-    mash dist ${ref} ${assembly} | sort -k3 | sed 's/\t/,/g' | tee distance.csv | head -n1 | tee ${dataset_id}_closest.csv | cut -d "," -f1 | tr -d '\n'
-    cat header.csv distance.csv > "${dataset_id}_distance.csv"
+    mash dist ${ref} ${assembly} | sort -k3 | sed 's/\t/,/g' | tee distance.csv | head -n1 | tee ${snapperDBname}_closest.csv | cut -d "," -f1 | tr -d '\\n'
+    cat header.csv distance.csv > "${snapperDBname}_distance.csv"
     """
 }
 
+process addDistanceToDIGESTDB {
+   tag { snapperDBname }
+
+   container "file:///${params.simgdir}/pengu-ddt.simg"
+
+   cpus 1
+
+   input:
+   set snapperDBname, file(distancecsv), file(digestDBconfig) from addDistanceToDB.combine(DIGCDDBConfigAddDistance)
+
+   output:
+
+   script:
+   """
+   pengu-ddt -c ${digestDBconfig} update_distance_db -d ${distancecsv}
+   """
+}
+
+
 process createDistanceFilter {
-    tag { dataset_id }
+    tag { snapperDBname }
 
     executor 'local'
 
     input:
-    set project, dataset_id, file(tophit) from createDistanceFilter
+    set snapperDBname, project, file(tophit) from createDistanceFilter
 
     output:
-    set dataset_id, stdout into distanceFilter
+    set snapperDBname, project, stdout into distanceFilter
 
     script:
     """
-    cut -d "," -f3 ${tophit} | tr -d '\n'
+    cut -d "," -f3 ${tophit} | tr -d '\\n'
     """
 }
 
@@ -1373,7 +1550,7 @@ process mashDistanceSummary {
     executor 'local'
 
     input:
-    set project, file(mashclosest) from mashDistanceSummary.groupTuple(by: 0)
+    set project, file("*") from mashDistanceSummary.map{ [ it[1], it[2] ] }.groupTuple()
 
     output:
     file("${RunID}_distance_summary.csv")
@@ -1386,36 +1563,37 @@ process mashDistanceSummary {
     """
 }
 
-snapperDBInputUnfiltered = snapperClosestRef.combine(distanceFilter, by:0).combine(DIGCDTrimmedReadsSnapperDB, by: 0).combine(DIGCDPHEnixConf).combine(DIGCDRefDir)
+snapperClosestRef.combine(distanceFilter, by: [0, 1])
+                 .set{snapperDBInputUnfiltered}
 
-snapperDBrenameReads = Channel.create()
+PHEnixVariantCallingDistFail = Channel.create()
 
-snapperDBInputfilterFail = Channel.create()
+PHEnixVariantCallingDistPass = Channel.create()
 
-snapperDBInputUnfiltered.choice( snapperDBrenameReads , snapperDBInputfilterFail ){ float dist = Float.parseFloat(it[2])
-                                                                                          dist <= maxmashdist ? 0 : 1 }
+snapperDBInputUnfiltered.choice( PHEnixVariantCallingDistPass , PHEnixVariantCallingDistFail ){ float dist = Float.parseFloat(it[3])
+                                                                                                      dist <= maxmashdist ? 0 : 1 }
 
+process collectDistanceFilterFailsDIGCD {
+    tag { RunID }
 
-process renameReadsForPHEnix {
-    tag { dataset_id }
+    publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: " ${RunID}_distance_fail.csv", mode: 'copy'
+
+    cpus 1
 
     input:
-    set dataset_id, ref, distance, project, file(forward), file(reverse), file(configdir), file(refdir) from snapperDBrenameReads
+    set project, file("*") from PHEnixVariantCallingDistFail.join(mashDistanceFailSummary, by: [0,1]).map{ [ it[1], it[4] ] }.groupTuple()
 
     output:
-    set dataset_id, ref, distance, project, file("${snapperDBname}.R1.fq.gz"), file("${snapperDBname}.R2.fq.gz"), file("${configdir}"), file("${refdir}") into snapperDBInputfilterPass
+    file("${RunID}_distance_fail.csv")
 
     script:
-    snapperDBname = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "")
     """
-    mv ${forward} ${snapperDBname}.R1.fq.gz
-    mv ${reverse} ${snapperDBname}.R2.fq.gz
+    cat *closest.csv > ${RunID}_distance_fail.csv
     """
 }
 
-
-process PHEnixVariantCalling {
-    tag { dataset_id }
+process PHEnixVariantCallingDIGCD {
+    tag { snapperDBname }
 
     publishDir "${outDir}/${project}/${RunID}/analysis/variant_calling/", pattern: "*vcf*", mode: 'copy'
     publishDir "${outDir}/${project}/${RunID}/analysis/variant_calling/", pattern: "*json.gz", mode: 'copy'
@@ -1425,14 +1603,14 @@ process PHEnixVariantCalling {
     cpus 4
 
     input:
-    set dataset_id, ref, distance, project, file(forward), file(reverse), file(config), file(refdir) from snapperDBInputfilterPass
+    set snapperDBname, project, ref, distance, file(forward), file(reverse), file(config), file(refdir) from PHEnixVariantCallingDistPass.join(DIGCDTrimmedReadsPHEnix, by: [0,1]).combine(DIGCDPHEnixConf).combine(DIGCDRefDir)
 
     output:
     file("*vcf*")
-    set dataset_id, ref, project, file("*.json.gz"), file("${refdir}") into snapperDBAddSampleToDB
+    file("*json.gz")
+    set snapperDBname, ref, project, file("*.json.gz"), file("${refdir}") into snapperDBAddSampleToDB
 
     script:
-    snapperDBname = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "")
     """
     phenix.py run_snp_pipeline --sample-name ${snapperDBname} --config ${config} --outdir phenix --json --reference ${refdir}/${ref} -r1 ${forward} -r2 ${reverse}
     mv phenix/* .
@@ -1440,8 +1618,8 @@ process PHEnixVariantCalling {
 }
 
 
-process snapperAddSampleToDB {
-   tag { dataset_id }
+process snapperAddSampleToDBDIGCD {
+   tag { snapperDBname }
 
    container "file:///${params.simgdir}/snapperdb_v3.simg"
 
@@ -1450,19 +1628,64 @@ process snapperAddSampleToDB {
    cpus 1
 
    input:
-   set dataset_id, ref, project, file(json), file(refdir) from snapperDBAddSampleToDB
+   set snapperDBname, ref, project, file(json), file(refdir) from snapperDBAddSampleToDB
 
    output:
-   val ref into snapperDBupdateDistanceMatrix
+   set refname, project, snapperDBname into DIGESTDBInsertSample
 
    script:
    refname = ref.take(ref.lastIndexOf('.'))
-   snapperDBname = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "")
    """
    snapper3.py add_sample --input ${json} --format json --connstring "${params.snapperdbconnstring} dbname=${refname}" --refname ${refname} --min-coverage 30
    snapper3.py cluster_sample --sample-name ${snapperDBname} --connstring "${params.snapperdbconnstring} dbname=${refname}" --with-registration --force-merge
    """
 }
+
+process addClustercodeToDBDIGCD {
+   tag { refname }
+
+   container "file:///${params.simgdir}/pengu-ddt.simg"
+
+   maxForks 1
+
+   cpus 1
+
+   input:
+   set refname, project, val(sampleNames), file(digestDBconfig) from DIGESTDBInsertSample.groupTuple(by: [0 , 1]).combine(DIGCDDBConfigAddClustercode)
+
+   output:
+   set project, file("${refname}.clustercode_updated.csv") into summarizeUpdatedClustercodes
+
+   script:
+   """
+   echo -e \"${sampleNames.join('\n')}\" >> isolate.csv
+   pengu-ddt -c ${digestDBconfig} update_clustercode_db -i isolate.csv -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -o ${refname}.clustercode_updated.csv
+   """
+}
+
+
+process updatedClustercodeSummaryDIGCD {
+   tag { RunID }
+
+   publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "${RunID}_updated_clustercodes.csv", mode: 'copy'
+
+   executor 'local'
+
+   cpus 1
+
+   input:
+   set project, file("*") from summarizeUpdatedClustercodes.groupTuple()
+
+   output:
+   file("${RunID}_updated_clustercodes.csv")
+
+   script:
+   """
+   cat *.clustercode_updated.csv | head -n1 > ${RunID}_updated_clustercodes.csv
+   cat *.clustercode_updated.csv | grep -v "y_number" >> ${RunID}_updated_clustercodes.csv
+   """
+}
+
 
 /*
 process snapperDBupdateDistanceMatrix {
@@ -1486,7 +1709,7 @@ process snapperDBupdateDistanceMatrix {
    run_snapperdb.py update_distance_matrix -c ${confname}.txt
    """
 }
-*/
+
 
 
 
@@ -1513,4 +1736,4 @@ else {
     sendMail(to: 'matthew.bull@wales.nhs.uk', subject: "PenGU sequencing pipeline complete: FAILURE", body: msg)
 }
 }
-	
+*/	
