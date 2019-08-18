@@ -162,7 +162,7 @@ params.wcmtbuser = "${transferuser}"
 params.wcmtbserver = '{{ remote_wcmtb_address }}'
 
 // Path to upload directory for WCM TB reads 
-params.wcmtbpath = "{{ remote_wcmtb_data_path }}"
+params.wcmtbpath = "{{ remote_wcmtb_upload_path }}"
 
 
 // Panel to use for TB geno and resistance typing, choose from bradley-2015 or walker-2015
@@ -170,6 +170,17 @@ params.mykrobepanel = '{{ wcm_typing_panel | default('bradley-2015') }}'
 
 // Path to directory containing WCM kraken database
 params.wcmkrakendbdir = '{{ wcmid_kraken_db }}'
+
+
+
+// Name of H37Rv reference genome
+params.wcmrefgenome = '{{ wcmid_reference_name }}'
+
+// Path to H37Rv reference genome 
+params.wcmH37Rvref = '{{ wcmid_reference_dir }}'
+
+// Path to PHEnix config
+params.wcmphenixconf = '{{ wcmid_phenix_conf }}'
 
 
 // ## *** ARGENT PIPELINE CONFIG *** ##
@@ -188,15 +199,26 @@ params.digcdmashref = '{{ digcd_mash_ref }}'
 params.digcdmaxmashdist = '{{ digcd_max_ref_dist }}'
 
 // Path to directory containing snapperdb config files
-params.digcdsnapperdbconfdir = '{{ digcd_snapperdb_conf_dir }}'
+//params.digcdsnapperdbconfdir = '{{ digcd_snapperdb_conf_dir }}'
 
 // Path to directory containing snapperdb reference files
-params.digcdsnapperdbrefdir = '{{ digcd_snapperdb_ref_dir }}'
+params.digcdrefdir = '{{ digcd_snapperdb_ref_dir }}'
 
+// PHEnix config
+params.digcdphenixconf = '{{ digcd_phenix_conf }}'
 
 // SnapperDB config
 snapperDB_user = '{{ digcd_snapperdb_user }}'
-snapperDB_host = '{{ postgresql_master }}'
-snapperDB_password '{{ digcd_snapperdb_password }}'
+snapperDB_host = '{{ digcd_snapperdb_host }}'
+snapperDB_password = '{{ digcd_snapperdb_password }}'
 
-params.snapperdbconnstring = "user=${snapperDB_user} host=${snapperdb_host} password=${snapperDB_password}"
+params.snapperdbconnstring = "user=${snapperDB_user} host=${snapperDB_host} password=${snapperDB_password}"
+
+// PHEnix minimum coverage
+params.digcdmincoverage = "{{ digcd_mincoverage }}"
+
+// DIGEST DB Config
+params.digestdbconfig = "{{ digcd_digestDB_conf }}"
+
+// MLST ST URL
+params.digcdpubmlsturl = 'https://pubmlst.org/data/profiles/cdifficile.txt'

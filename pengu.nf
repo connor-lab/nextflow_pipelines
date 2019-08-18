@@ -1327,6 +1327,11 @@ Channel.fromPath( "${params.digestdbconfig}" ).into{ DIGCDDBConfigAddSample ; DI
 
 float maxmashdist = Float.parseFloat(params.digcdmaxmashdist)
 
+float mincoverage = Float.parseFloat(params.digcdmincoverage)
+
+Date snapperDBnameDate = new Date()
+snapperDBnameDateTime = snapperDBnameDate.format( "yyMMdd-HHmm" )
+ 
 
 process renameReadsForPHEnix {
     tag { dataset_id }
@@ -1339,7 +1344,8 @@ process renameReadsForPHEnix {
     set snapperDBname, project into DIGCDDBInsertSample
 
     script:
-    snapperDBname = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "")
+    yNumber = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "")
+    snapperDBname = "${yNumber}_${snapperDBnameDateTime}"
     """
     mv ${forward} ${snapperDBname}.R1.fq.gz
     mv ${reverse} ${snapperDBname}.R2.fq.gz
@@ -1461,6 +1467,7 @@ process callMLSTDIGCD {
     """
 }
 
+
 process addMLSTToDIGESTDB {
    tag { RunID }
 
@@ -1478,7 +1485,6 @@ process addMLSTToDIGESTDB {
    pengu-ddt -c ${digestDBconfig} update_mlst_db -p ${params.digcdpubmlsturl} -n cdifficile -m ${mlstdata}
    """
 }
-
 
 process mashDistanceToRef {
     tag { snapperDBname }
@@ -1608,7 +1614,8 @@ process PHEnixVariantCallingDIGCD {
     output:
     file("*vcf*")
     file("*json.gz")
-    set snapperDBname, ref, project, file("*.json.gz"), file("${refdir}") into snapperDBAddSampleToDB
+    set snapperDBname, project, file("*.json.gz") into snapperDBCoverageFilter
+    set snapperDBname, project, ref, file("*.json.gz"), file("${refdir}") into snapperDBAddSampleToDB 
 
     script:
     """
@@ -1617,6 +1624,38 @@ process PHEnixVariantCallingDIGCD {
     """
 }
 
+process snapperDBCoverageFilter {
+    tag { snapperDBname }
+
+    publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "sample_coverage.csv", mode: 'copy'
+
+    cpus 1
+
+    input:
+    set snapperDBname, project, file(json) from snapperDBCoverageFilter
+
+    output:
+    set snapperDBname, project, stdout into snapperDBCoverageFilterUnfiltered
+
+    script:
+    """
+    #!/usr/bin/env python3
+    import gzip
+    import json
+    
+    with gzip.open("${json}", "rt", encoding="utf-8") as f:
+         json_data = json.load(f)
+    
+    print(json_data['annotations'].get("coverageMetaData")[0].get("mean"), end = '')
+
+    """
+}
+
+Channel.create().set{ snapperDBmincoveragePass }
+Channel.create().set{ snapperDBmincoverageFail }
+
+snapperDBCoverageFilterUnfiltered.choice( snapperDBmincoveragePass, snapperDBmincoverageFail  ){ float cov = Float.parseFloat(it[2])
+                                                                                                       cov >= mincoverage ? 0 : 1 }
 
 process snapperAddSampleToDBDIGCD {
    tag { snapperDBname }
@@ -1628,7 +1667,7 @@ process snapperAddSampleToDBDIGCD {
    cpus 1
 
    input:
-   set snapperDBname, ref, project, file(json), file(refdir) from snapperDBAddSampleToDB
+   set snapperDBname, project, coverage, ref, file(json), file(refdir) from snapperDBmincoveragePass.join(snapperDBAddSampleToDB, by: [0,1]) 
 
    output:
    set refname, project, snapperDBname into DIGESTDBInsertSample
@@ -1636,7 +1675,7 @@ process snapperAddSampleToDBDIGCD {
    script:
    refname = ref.take(ref.lastIndexOf('.'))
    """
-   snapper3.py add_sample --input ${json} --format json --connstring "${params.snapperdbconnstring} dbname=${refname}" --refname ${refname} --min-coverage 30
+   snapper3.py add_sample --input ${json} --format json --connstring "${params.snapperdbconnstring} dbname=${refname}" --refname ${refname} --min-coverage ${mincoverage}
    snapper3.py cluster_sample --sample-name ${snapperDBname} --connstring "${params.snapperdbconnstring} dbname=${refname}" --with-registration --force-merge
    """
 }
@@ -1655,11 +1694,12 @@ process addClustercodeToDBDIGCD {
 
    output:
    set project, file("${refname}.clustercode_updated.csv") into summarizeUpdatedClustercodes
+   set project, file("${refname}.all_clustercodes.csv") into summarizeAllClustercodes 
 
    script:
    """
    echo -e \"${sampleNames.join('\n')}\" >> isolate.csv
-   pengu-ddt -c ${digestDBconfig} update_clustercode_db -i isolate.csv -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -o ${refname}.clustercode_updated.csv
+   pengu-ddt -c ${digestDBconfig} update_clustercode_db -i isolate.csv -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -o ${refname}.clustercode_updated.csv -oa ${refname}.all_clustercodes.csv
    """
 }
 
@@ -1686,31 +1726,27 @@ process updatedClustercodeSummaryDIGCD {
    """
 }
 
+process allClustercodeSummaryDIGCD {
+   tag { RunID }
 
-/*
-process snapperDBupdateDistanceMatrix {
-   tag { confname }
+   publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "${RunID}_all_clustercodes.csv", mode: 'copy'
+
+   executor 'local'
 
    cpus 1
 
    input:
-   set ref, file(configdir) from snapperDBupdateDistanceMatrix.combine(confDirUpdateDistanceMatrix)
-                                                              .combine(snapperDBupdateDistanceMatrixDummy.collect())
-                                                              .unique()
-                                                              .map{ [ it[0] , it[1] ] }
+   set project, file("*") from summarizeAllClustercodes.groupTuple()
 
    output:
-   val ref
+   file("${RunID}_all_clustercodes.csv")
 
    script:
-   confname = ref.take(ref.lastIndexOf('.'))
    """
-   export GASTROSNAPPER_CONFPATH=${configdir}
-   run_snapperdb.py update_distance_matrix -c ${confname}.txt
+   cat *.all_clustercodes.csv | head -n1 > ${RunID}_all_clustercodes.csv
+   cat *.all_clustercodes.csv | grep -v "y_number" >> ${RunID}_all_clustercodes.csv
    """
 }
-
-
 
 
 workflow.onComplete {
@@ -1736,4 +1772,4 @@ else {
     sendMail(to: 'matthew.bull@wales.nhs.uk', subject: "PenGU sequencing pipeline complete: FAILURE", body: msg)
 }
 }
-*/	
+	
