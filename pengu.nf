@@ -1434,7 +1434,7 @@ process annotateProkkaDIGCD {
     cpus 4
 
     input:
-    set snapperDBname, project, file(assembly) from prokkaAssemblyDIGCD.filter{ it[1].size()>1000 }
+    set snapperDBname, project, file(assembly) from prokkaAssemblyDIGCD.filter{ it[2].size()>1000 }
 
     output:
     file("${snapperDBname}/${snapperDBname}.*")
