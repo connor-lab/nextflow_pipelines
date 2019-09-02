@@ -120,9 +120,7 @@ process TrimReads {
  
     output:
     set dataset_id, project, file("*_val_1.fq.gz"), file("*_val_2.fq.gz") optional true into TrimmedReadsLength, TrimmedReadsQC, TrimmedReadsHIV, TrimmedReadsFLU, TrimmedReadsWCMTB, TrimmedReadsARG, TrimmedReadsDIGCD
-    set project, file("*trimming_report.txt") optional true into TrimGaloreResults
-    set project, file("*_fastqc.{zip,html}") optional true into TrimGaloreFastQCReports
-    
+    set project, file("*trimming_report.txt"), file("*_fastqc.{zip,html}") optional true into TrimGaloreResults
 
     script:
       """
@@ -159,8 +157,6 @@ process Centrifuge {
     publishDir "${outDir}/${project}/${RunID}/qc/centrifuge", mode: 'copy'
 
     cpus 8
-
-    //queue 'compute-hm'
 
     input:
     set dataset_id, project, file(forward), file(reverse) from TrimmedReadsQC
@@ -251,26 +247,6 @@ process CalculateMagnitudeSummary {
     file.append("${dataset_id},${taxName},${taxID},${numberReads},${avgReadLength},${matchingBP}\n")
 }
 
-process FlattenOutputs {
-    tag { RunID }
-
-    executor 'local'
-
-    input:
-    set project, trimoutputs from TrimGaloreResults.groupTuple()
-    set project, fastqcoutputs from TrimGaloreFastQCReports.groupTuple()
-    set project, centrifugeoutputs from CentrifugeReport.groupTuple()
-
-    output:
-    set project, trimflat, fastqcflat into MultiQCFlat
-    set project, centrifugeflat into KronaFlat
-
-    exec:
-    trimflat = trimoutputs.flatten()
-    fastqcflat = fastqcoutputs.flatten()
-    centrifugeflat = centrifugeoutputs.flatten()
-}
-
 process MultiQC {
     tag { proctag }
 
@@ -279,7 +255,7 @@ process MultiQC {
     publishDir "${outDir}/${project}/${RunID}/qc", mode: 'copy'
 
     input:
-    set project, file(trim), file(fastqc), file(interop), file(multiqcconf) from MultiQCFlat.combine(InterOpMultiQC).combine(multiQCConfYaml)
+    set project, file("*"), file("*"), file(interop), file(multiqcconf) from TrimGaloreResults.groupTuple(by: 0).map{ [ it[0], it[1].flatten().toList(), it[2].flatten().toList() ] }.combine(InterOpMultiQC).combine(multiQCConfYaml)
 
     output:
     file "multiqc_report.html"
@@ -302,7 +278,7 @@ process Krona {
     publishDir "${outDir}/${project}/${RunID}/qc", mode: 'copy'
 
     input:
-    set project, file(centrifuge) from KronaFlat
+    set project, file("centrifuge_reports/*") from CentrifugeReport.groupTuple(by: 0)
 
     output:
     file "centrifuge_report.html"
@@ -311,7 +287,7 @@ process Krona {
       projectUpper = "${project}".toUpperCase()
       proctag = RunID + "-" + projectUpper
       """
-      ktImportTaxonomy -o centrifuge_report.html -m 5 -s 7 *_centrifugereport.tab
+      ktImportTaxonomy -o centrifuge_report.html -m 5 -s 7 centrifuge_reports/*
       """
 }
 
