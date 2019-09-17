@@ -458,23 +458,27 @@ process HIVShiver {
     container "file:///${params.simgdir}/shiver.simg"
 
     publishDir "${outDir}/${project}/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.shiver.fa", mode: 'copy'
-   
+    publishDir "${outDir}/${project}/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.shiverlog.txt", mode: 'copy'   
+
     input:
     set dataset_id, project, file(assembly), file(forward), file(reverse), file(shiverconf), file(shiverinit) from HIVIVAAssembly.join(HIVCleanReadsPolishing, by: [0,1]).combine(ShiverConf).combine(ShiverInit)
 
     output:
-    set dataset_id, project, file("${dataset_id}.shiver.fa") into HIVAssemblyBAM, HIVAssemblyVariants
-
+    set dataset_id, project, file("${dataset_id}.shiver.fa") optional true into HIVAssemblyBAM, HIVAssemblyVariants
+    file("${dataset_id}.shiver.txt") optional true
 
     script:
     """
-    shiver_align_contigs.sh ${shiverinit} ${shiverconf} ${assembly} ${dataset_id}
-    if [ -f ${dataset_id}_cut_wRefs.fasta ]; then
-      shiver_map_reads.sh ${shiverinit} ${shiverconf} ${assembly} ${dataset_id} ${dataset_id}.blast ${dataset_id}_cut_wRefs.fasta ${forward} ${reverse}
+    if shiver_align_contigs.sh ${shiverinit} ${shiverconf} ${assembly} ${dataset_id}; then
+        if [ -f ${dataset_id}_cut_wRefs.fasta ]; then
+            shiver_map_reads.sh ${shiverinit} ${shiverconf} ${assembly} ${dataset_id} ${dataset_id}.blast ${dataset_id}_cut_wRefs.fasta ${forward} ${reverse}
+        else
+            shiver_map_reads.sh ${shiverinit} ${shiverconf} ${assembly} ${dataset_id} ${dataset_id}.blast ${dataset_id}_raw_wRefs.fasta ${forward} ${reverse}
+        fi
+        seqtk seq -l0 ${dataset_id}_remap_consensus_MinCov_15_30.fasta | head -n2 | sed '/>/!s/-//g' | sed 's/\\?/N/g' | sed 's/_remap_consensus//g' | seqtk seq -l80 > ${dataset_id}.shiver.fa
     else
-      shiver_map_reads.sh ${shiverinit} ${shiverconf} ${assembly} ${dataset_id} ${dataset_id}.blast ${dataset_id}_raw_wRefs.fasta ${forward} ${reverse}
+        echo "No HIV contigs found. This sample is likely to be purely contamination" > ${dataset_id}.shiverlog.txt
     fi
-    seqtk seq -l0 ${dataset_id}_remap_consensus_MinCov_15_30.fasta | head -n2 | sed '/>/!s/-//g' | sed 's/\\?/N/g' | sed 's/_remap_consensus//g' | seqtk seq -l80 > ${dataset_id}.shiver.fa
     """
 }
 }
@@ -1403,7 +1407,7 @@ process quastDIGCD {
 process annotateProkkaDIGCD {
     tag { snapperDBname }
 
-    publishDir "${outDir}/${project}/${RunID}/analysis/annotation/", pattern: "${snapperDBname}/${snapperDBname}.*", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/annotation/", pattern: "${snapperDBname}/${prefix}.*", mode: 'copy'
 
     container "file:///${params.simgdir}/prokka.simg"
 
@@ -1413,13 +1417,18 @@ process annotateProkkaDIGCD {
     set snapperDBname, project, file(assembly) from prokkaAssemblyDIGCD.filter{ it[2].size()>1000 }
 
     output:
-    file("${snapperDBname}/${snapperDBname}.*")
+    file("${snapperDBname}/${prefix}.*")
 
     script:
-    //locusTag = dataset_id.tokenize("_")[0].tokenize("-")[1]
-    //prefix = project.toUpperCase()
+    if ( snapperDBname =~ /POS/ || snapperDBname.length() > 20 ) {
+        locusTag = snapperDBname.tokenize("_")[0].take(20)
+        prefix = locusTag
+    } else {
+        locusTag = snapperDBname
+        prefix = locusTag
+    }
     """
-    prokka --outdir ${snapperDBname} --locustag ${snapperDBname} --prefix ${snapperDBname} --centre PHW --cpus ${task.cpus} --compliant ${assembly}
+    prokka --outdir ${snapperDBname} --locustag ${locusTag} --prefix ${prefix} --centre PHW --cpus ${task.cpus} --compliant ${assembly}
     """
 }
 
@@ -1427,7 +1436,7 @@ process annotateProkkaDIGCD {
 process callMLSTDIGCD {
     tag { RunID }
 
-    publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "*_MLST.csv", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "*_MLST.tab", mode: 'copy'
 
     container "file:///${params.simgdir}/mlst.simg"
 
@@ -1435,11 +1444,11 @@ process callMLSTDIGCD {
     set project, file("*") from MLSTAssemblyDIGCD.groupTuple()
 
     output:
-    file "*_MLST.csv" into DIGCDDBMLSTdata
+    file "*_MLST.tab" into DIGCDDBMLSTdata
 
     script:
     """
-    mlst --scheme cdifficile --nopath --csv *.fasta > ${RunID}_MLST.csv
+    mlst --scheme cdifficile --nopath *.fasta > ${RunID}_MLST.tab
     """
 }
 
