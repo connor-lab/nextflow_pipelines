@@ -1474,7 +1474,7 @@ process addMLSTToDIGESTDB {
 process mashDistanceToRef {
     tag { snapperDBname }
 
-    publishDir "${outDir}/${project}/${RunID}/analysis/reference_selection/", pattern: "${dataset_id}_distance.csv", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/reference_selection/", pattern: "${snapperDBname}_distance.csv", mode: 'copy'
 
     container "file:///${params.simgdir}/mash.simg"
 
