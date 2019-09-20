@@ -102,7 +102,7 @@ process BackupRunDirectory {
 
 InputReads.map{ [ it[0] , it[0].tokenize("-")[0].toLowerCase() , it[1] , it[2] ]}.into{ inputReadsProject ; countProject }
 
-countProject.map{ [ it[0] , it[1] ]}. countBy{ it[1] }.println()
+projectCount = countProject.map{ [ it[0] , it[1] ]}.countBy{ it[1] }.getVal().toString()
 
 process TrimReads {
     tag { dataset_id }
@@ -1349,7 +1349,7 @@ process addSamplesToDIGESTDB {
    script:
    """
    echo "y_number,episode_number" > isolate.csv
-   echo -e \"${snapperDBname},,\\n\" >> isolate.csv
+   echo "${snapperDBname},," >> isolate.csv
    pengu-ddt -c ${digestDBconfig} add_isolates --isolate_csv isolate.csv
    """
 }
@@ -1493,7 +1493,7 @@ process mashDistanceToRef {
     """
     echo "#Reference,Query,Distance,P-value,Common kmers" > header.csv
     mash dist ${ref} ${assembly} | sort -k3 | sed 's/\t/,/g' | tee distance.csv | head -n1 | tee ${snapperDBname}_closest.csv | cut -d "," -f1 | tr -d '\\n'
-    cat header.csv distance.csv > "${snapperDBname}_distance.csv"
+    cat header.csv distance.csv > ${snapperDBname}_distance.csv
     """
 }
 
@@ -1604,6 +1604,7 @@ process PHEnixVariantCallingDIGCD {
 
     script:
     """
+    export TMPDIR=\$(pwd)
     phenix.py run_snp_pipeline --sample-name ${snapperDBname} --config ${config} --outdir phenix --json --reference ${refdir}/${ref} -r1 ${forward} -r2 ${reverse}
     mv phenix/* .
     """
@@ -1679,11 +1680,37 @@ process addClustercodeToDBDIGCD {
 
    output:
    set project, file("${refname}.clustercode_updated.csv") into summarizeUpdatedClustercodes
-   set project, file("${refname}.all_clustercodes.csv") into summarizeAllClustercodes 
+   //set project, file("${refname}.all_clustercodes.csv") into summarizeAllClustercodes 
+   set project, file("$digestDBconfig") into getAllClusterCodes
 
    script:
    """
    echo -e \"${sampleNames.join('\n')}\" >> isolate.csv
+   pengu-ddt -c ${digestDBconfig} update_clustercode_db -i isolate.csv -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -o ${refname}.clustercode_updated.csv -oa ${refname}.all_clustercodes.csv
+   """
+}
+
+Channel.from(params.digcdreflist).set{ digestRefList }
+
+process getClusterCodesFromNotUpdated {
+   tag { refname }
+
+   container "file:///${params.simgdir}/pengu-ddt.simg"
+
+   maxForks 1
+
+   cpus 1
+
+   input:
+   set project, file(digestDBconfig), refname from getAllClusterCodes.last().combine( digestRefList )
+  // each refname from params.digcdreflist  
+
+   output:
+   set project, file("${refname}.all_clustercodes.csv") into summarizeAllClustercodes 
+
+   script:
+   """
+   echo -e \"${refname}\" >> isolate.csv
    pengu-ddt -c ${digestDBconfig} update_clustercode_db -i isolate.csv -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -o ${refname}.clustercode_updated.csv -oa ${refname}.all_clustercodes.csv
    """
 }
@@ -1739,14 +1766,15 @@ workflow.onComplete {
     def msg = """\
         Pipeline execution summary
         ---------------------------
-        MiSeq run name  : ${RunID}
-        Workflow name   : ${workflow.scriptName}
-        Workflow version: ${workflow.scriptId}
-        Completed at    : ${workflow.complete}
-        Duration        : ${workflow.duration}
-        Success         : ${workflow.success}
-        workDir         : ${workflow.workDir}
-        exit status     : ${workflow.exitStatus}
+        MiSeq run name    : ${RunID}
+        Project breakdown : ${projectCount.substring(projectCount.indexOf("[") + 1, projectCount.indexOf("]"))}
+        Workflow name     : ${workflow.scriptName}
+        Workflow version  : ${workflow.scriptId}
+        Completed at      : ${workflow.complete}
+        Duration          : ${workflow.duration}
+        Success           : ${workflow.success}
+        workDir           : ${workflow.workDir}
+        exit status       : ${workflow.exitStatus}
         """
         .stripIndent()
 

@@ -203,6 +203,7 @@ params.digcdmaxmashdist = '{{ digcd_max_ref_dist }}'
 
 // Path to directory containing snapperdb reference files
 params.digcdrefdir = '{{ digcd_snapperdb_ref_dir }}'
+params.digcdreflist = ['{{ digcd_reference_list | list | join ('\',\'') }}']
 
 // PHEnix config
 params.digcdphenixconf = '{{ digcd_phenix_conf }}'
