@@ -1303,7 +1303,7 @@ DIGCDPHEnixConf = Channel.fromPath( "${params.digcdphenixconf}")
 
 DIGCDRefDir = Channel.fromPath( "${params.digcdrefdir}", type: 'dir', maxDepth: 1)
 
-Channel.fromPath( "${params.digestdbconfig}" ).into{ DIGCDDBConfigAddSample ; DIGCDDBConfigAddMLST ; DIGCDDBConfigAddClustercode ; DIGCDDBConfigAddDistance }
+Channel.fromPath( "${params.digestdbconfig}" ).into{ DIGCDDBConfigAddSample ; DIGCDDBConfigAddMLST ; DIGCDDBConfigAddClustercode ; DIGCDDBConfigAddDistance; DIGCDDBConfigAllClustercodes }
 
 float maxmashdist = Float.parseFloat(params.digcdmaxmashdist)
 
@@ -1622,18 +1622,56 @@ process snapperDBCoverageFilter {
 
     output:
     set snapperDBname, project, stdout into snapperDBCoverageFilterUnfiltered
+    set project, file("${snapperDBname}.coverage.csv") into DIGCDsummarizeCoverage
 
     script:
     """
     #!/usr/bin/env python3
+
+    import csv
     import gzip
     import json
-    
-    with gzip.open("${json}", "rt", encoding="utf-8") as f:
-         json_data = json.load(f)
-    
-    print(json_data['annotations'].get("coverageMetaData")[0].get("mean"), end = '')
 
+    mapping_details = []
+
+    mapping_details.append("${snapperDBname}")
+    with gzip.open("${json}", "rt", encoding="utf-8") as f:
+        json_data = json.load(f)
+
+    mean_cov = json_data['annotations'].get("coverageMetaData")[0].get("mean")
+    dev_cov = json_data['annotations'].get("coverageMetaData")[0].get("dev")
+    
+    mapping_details.append(mean_cov)
+    mapping_details.append(dev_cov)
+    
+    if float(mean_cov) < float(${mincoverage}):
+        mapping_details.append("FAIL")
+
+    with open("${snapperDBname}.coverage.csv",'w') as resultFile:
+        wr = csv.writer(resultFile)
+        wr.writerows([mapping_details])
+
+    print(mean_cov, end = '')
+    """
+}
+
+process digcdSummarizeCoverage {
+    tag { RunID }
+
+    publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "${RunID}.snapperdb_coverage_summary.csv", mode: 'copy'
+
+    cpus 1
+
+    input:
+    set project, file("coverage*.csv") from DIGCDsummarizeCoverage.groupTuple(by: 0)
+
+    output:
+    file("${RunID}.snapperdb_coverage_summary.csv")
+
+    script:
+    """
+    echo "sample,mean_coverage,stddev_coverage,pass/fail" > ${RunID}.snapperdb_coverage_summary.csv
+    cat coverage*.csv >> ${RunID}.snapperdb_coverage_summary.csv
     """
 }
 
@@ -1648,6 +1686,8 @@ process snapperAddSampleToDBDIGCD {
 
    container "file:///${params.simgdir}/snapperdb_v3.simg"
 
+   publishDir "${outDir}/${project}/${RunID}/analysis/snapperdb_log/", pattern: "*.log", mode: 'copy'
+
    maxForks 1
 
    cpus 1
@@ -1657,12 +1697,18 @@ process snapperAddSampleToDBDIGCD {
 
    output:
    set refname, project, snapperDBname into DIGESTDBInsertSample
+   file("${snapperDBname}.snapperdb.log") optional true
+   file("${snapperDBname}.snapperdb.fail.log") optional true
 
    script:
    refname = ref.take(ref.lastIndexOf('.'))
    """
    snapper3.py add_sample --input ${json} --format json --connstring "${params.snapperdbconnstring} dbname=${refname}" --refname ${refname} --min-coverage ${mincoverage}
-   snapper3.py cluster_sample --sample-name ${snapperDBname} --connstring "${params.snapperdbconnstring} dbname=${refname}" --with-registration --force-merge
+   if snapper3.py cluster_sample --sample-name ${snapperDBname} --connstring "${params.snapperdbconnstring} dbname=${refname}" --with-registration --force-merge &> ${snapperDBname}.snapperdb.stage.log; then
+	mv ${snapperDBname}.snapperdb.stage.log ${snapperDBname}.snapperdb.log
+   else
+	mv ${snapperDBname}.snapperdb.stage.log ${snapperDBname}.snapperdb.fail.log
+   fi	
    """
 }
 
@@ -1679,18 +1725,20 @@ process addClustercodeToDBDIGCD {
    set refname, project, val(sampleNames), file(digestDBconfig) from DIGESTDBInsertSample.groupTuple(by: [0 , 1]).combine(DIGCDDBConfigAddClustercode)
 
    output:
-   set project, file("${refname}.clustercode_updated.csv") into summarizeUpdatedClustercodes
-   //set project, file("${refname}.all_clustercodes.csv") into summarizeAllClustercodes 
-   set project, file("$digestDBconfig") into getAllClusterCodes
+   set project, file("${refname}.clustercode_updated.csv") optional true into summarizeUpdatedClustercodes
+   set project, file("${refname}.dummyfile.csv") into updatedDB
 
    script:
    """
    echo -e \"${sampleNames.join('\n')}\" >> isolate.csv
-   pengu-ddt -c ${digestDBconfig} update_clustercode_db -i isolate.csv -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -o ${refname}.clustercode_updated.csv -oa ${refname}.all_clustercodes.csv
+   pengu-ddt -c ${digestDBconfig} update_clustercode_db -i isolate.csv -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -o ${refname}.clustercode_updated.csv
+   tail -n1 isolate.csv > ${refname}.dummyfile.csv
    """
 }
 
-Channel.from(params.digcdreflist).set{ digestRefList }
+Channel.from(params.digcdreflist).set{ allDIGESTRefs }
+
+updatedDB.groupTuple().combine(allDIGESTRefs).map{ [ it[0], it[2] ] }.unique().set{ digestRefListNotUpdated }
 
 process getClusterCodesFromNotUpdated {
    tag { refname }
@@ -1702,19 +1750,16 @@ process getClusterCodesFromNotUpdated {
    cpus 1
 
    input:
-   set project, file(digestDBconfig), refname from getAllClusterCodes.last().combine( digestRefList )
-  // each refname from params.digcdreflist  
+   set project, refname, file(digestDBconfig) from digestRefListNotUpdated.combine( DIGCDDBConfigAllClustercodes )
 
    output:
-   set project, file("${refname}.all_clustercodes.csv") into summarizeAllClustercodes 
+   set project, file("${refname}.all_clustercodes.csv") into summarizeAllClustercodes
 
    script:
    """
-   echo -e \"${refname}\" >> isolate.csv
-   pengu-ddt -c ${digestDBconfig} update_clustercode_db -i isolate.csv -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -o ${refname}.clustercode_updated.csv -oa ${refname}.all_clustercodes.csv
+   pengu-ddt -c ${digestDBconfig} update_clustercode_db -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -oa ${refname}.all_clustercodes.csv
    """
 }
-
 
 process updatedClustercodeSummaryDIGCD {
    tag { RunID }
@@ -1759,7 +1804,6 @@ process allClustercodeSummaryDIGCD {
    cat *.all_clustercodes.csv | grep -v "y_number" >> ${RunID}_all_clustercodes.csv
    """
 }
-
 
 workflow.onComplete {
 
