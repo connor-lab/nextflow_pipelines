@@ -1015,6 +1015,7 @@ process PHEnixVariantCallingWCM {
 
     script:
     """
+    export TMPDIR=\$(pwd)
     phenix.py run_snp_pipeline --sample-name ${dataset_id} --config ${config} --outdir phenix --reference ${refdir}/${WCMRefGenomeName}.fa -r1 ${forward} -r2 ${reverse}
     mv phenix/* .
     """
