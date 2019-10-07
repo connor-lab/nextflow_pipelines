@@ -1325,7 +1325,15 @@ process renameReadsForPHEnix {
     set snapperDBname, project into DIGCDDBInsertSample
 
     script:
-    yNumber = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "")
+    ySplit = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "").tokenize("-")
+    if ( ySplit[0].startsWith("Y") ) {
+        yYear = ySplit[0]
+        yNumberList = ySplit[1..-1].join("").split("(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)")
+        yNumberList[0] = yNumberList[0].padLeft(5, "0")
+        yNumber = yYear + "-" + yNumberList.join("")
+    } else {
+        yNumber = ySplit.join("").replaceAll("CDIFF","")
+    }
     snapperDBname = "${yNumber}_${snapperDBnameDateTime}"
     """
     mv ${forward} ${snapperDBname}.R1.fq.gz
