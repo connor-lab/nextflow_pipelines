@@ -1339,8 +1339,8 @@ process addSamplesToDIGESTDB {
      
    script:
    """
-   echo "y_number,episode_number" > isolate.csv
-   echo "${snapperDBname},," >> isolate.csv
+   echo "y_number,episode_number,original_id" > isolate.csv
+   echo "${snapperDBname},,${snapperDBname}" >> isolate.csv
    pengu-ddt -c ${digestDBconfig} add_isolates --isolate_csv isolate.csv
    """
 }
@@ -1717,22 +1717,19 @@ process addClustercodeToDBDIGCD {
 
    output:
    set project, file("${refname}.clustercode_updated.csv") optional true into summarizeUpdatedClustercodes
-   set project, file("${refname}.dummyfile.csv") into updatedDB
+   val project, refname into digestDBDump
 
    script:
    """
    echo -e \"${sampleNames.join('\n')}\" >> isolate.csv
    pengu-ddt -c ${digestDBconfig} update_clustercode_db -i isolate.csv -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -o ${refname}.clustercode_updated.csv
-   tail -n1 isolate.csv > ${refname}.dummyfile.csv
    """
 }
 
-Channel.from(params.digcdreflist).set{ allDIGESTRefs }
+process dumpClustercodeDatabase {
+   tag { project }
 
-updatedDB.groupTuple().combine(allDIGESTRefs).map{ [ it[0], it[2] ] }.unique().set{ digestRefListNotUpdated }
-
-process getClusterCodesFromNotUpdated {
-   tag { refname }
+   publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "${RunID}_all_clustercodes.csv", mode: 'copy'
 
    container "file:///${params.simgdir}/pengu-ddt.simg"
 
@@ -1741,14 +1738,14 @@ process getClusterCodesFromNotUpdated {
    cpus 1
 
    input:
-   set project, refname, file(digestDBconfig) from digestRefListNotUpdated.combine( DIGCDDBConfigAllClustercodes )
+   set project, refname("*") from digestDBDump.groupTuple()
 
    output:
-   set project, file("${refname}.all_clustercodes.csv") into summarizeAllClustercodes
+   set project, file("${RunID}.all_clustercodes.csv") into summarizeAllClustercodes
 
    script:
    """
-   pengu-ddt -c ${digestDBconfig} update_clustercode_db -a "${params.snapperdbconnstring} dbname=${refname}" -g ${refname} -oa ${refname}.all_clustercodes.csv
+   pengu-ddt -c ${digestDBconfig} dump_all_clustercodes -a "${params.snapperdbconnstring} dbname=${refname}" -oa ${RunID}.all_clustercodes.csv
    """
 }
 
@@ -1774,27 +1771,6 @@ process updatedClustercodeSummaryDIGCD {
    """
 }
 
-process allClustercodeSummaryDIGCD {
-   tag { RunID }
-
-   publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "${RunID}_all_clustercodes.csv", mode: 'copy'
-
-   executor 'local'
-
-   cpus 1
-
-   input:
-   set project, file("*") from summarizeAllClustercodes.groupTuple()
-
-   output:
-   file("${RunID}_all_clustercodes.csv")
-
-   script:
-   """
-   cat *.all_clustercodes.csv | head -n1 > ${RunID}_all_clustercodes.csv
-   cat *.all_clustercodes.csv | grep -v "y_number" >> ${RunID}_all_clustercodes.csv
-   """
-}
 
 workflow.onComplete {
 
