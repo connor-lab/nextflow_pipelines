@@ -365,6 +365,7 @@ process AssembleHIVReads {
     tag { dataset_id }
 
     publishDir "${outDir}/${project}/${RunID}/analysis/02-assembly", pattern: "${dataset_id}.iva.fa", mode: 'copy'
+    publishDir "${outDir}/${project}/${RunID}/analysis/02-assembly/logs", pattern: "${dataset_id}.iva*.log", mode: 'copy'
  
     container "file:///${params.simgdir}/iva.simg"
 
@@ -375,35 +376,17 @@ process AssembleHIVReads {
 
     output:
     set dataset_id, project, file("${dataset_id}.iva.fa") optional true into HIVIVAAssembly
-    set project, file("*.assembly.failed") optional true into HIVIVAFail
+    set project, file("*.log") optional true
 
     script:
     """
-    if iva --threads ${task.cpus} -f $forward -r $reverse iva_assembly &> ${dataset_id}.assembly.failed ; then
+    if iva -v --threads ${task.cpus} -f $forward -r $reverse iva_assembly 2>&1 > ${dataset_id}.iva.log ; then
       mv iva_assembly/contigs.fasta ${dataset_id}.iva.fa
     else
-      sed -i "1s/^/${dataset_id}\t/" ${dataset_id}.assembly.failed
+      mv ${dataset_id}.iva.log ${dataset_id}.iva.fail.log
     fi
     """
 }
-
-process CollectFailedHIVAssemblies {
-    tag { RunID }
-
-    publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "IVA.assembly.failed.txt", mode: 'copy'
-
-    input:
-    set project, file("*") from HIVIVAFail.groupTuple()
-
-    output:
-    file "IVA.assembly.failed.txt"
-
-    script:
-    """
-    cat *.failed > IVA.assembly.failed.txt
-    """
-}
-
 
 if(params.shiver == 'false'){
 process OrderHIVContigs {
@@ -495,13 +478,12 @@ process HIVMappingVariantCalling {
     set dataset_id, project, file(forward), file(reverse), file(assembly) from HIVCleanReadsVariantCalling.join(HIVAssemblyBAM, by: [0,1])
 
     output:
-    set dataset_id, project, file("${dataset_id}.nodups.bam") into HIVMappingNoDupsBAM
+    set dataset_id, project, file("${dataset_id}.variants.bam") into HIVMappingNoDupsBAM
 
     script:
     """
     samtools faidx $assembly
     minimap2 -t ${task.cpus} -x sr -a $assembly $forward $reverse | samtools view -@ 2 -b | samtools sort -@ 2 -o ${dataset_id}.variants.bam
-    picard MarkDuplicates METRICS_FILE=duplicates_metrics.txt REMOVE_DUPLICATES=true I=${dataset_id}.variants.bam O=${dataset_id}.nodups.bam
     """
 }
 
@@ -516,7 +498,7 @@ process HIVVariantCallingVarScan {
     publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/vcf", pattern: "${dataset_id}.${minvarfreq}.consensus.vcf", mode: 'copy'
 
     input:
-    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants, by: [0,1]).combine(MinVarFreq)
+    set dataset_id, project, file(bam), file(assembly), minvarfreq from HIVMappingNoDupsBAM.join(HIVAssemblyVariants, by: [0,1]).combine(MinVarFreq)
 
     output:
     set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariants
@@ -525,7 +507,7 @@ process HIVVariantCallingVarScan {
 
     script:
     """
-    samtools mpileup --max-depth 100000 --redo-BAQ --min-MQ 17 --min-BQ 20 --output ${dataset_id}.mpileup --fasta-ref ${assembly} ${nodupsbam}
+    samtools mpileup --max-depth 10000000 --redo-BAQ --min-MQ 17 --min-BQ 20 --output ${dataset_id}.mpileup --fasta-ref ${assembly} ${bam}
     java -Xmx17G -jar /usr/local/bin/varscan.jar mpileup2cns ${dataset_id}.mpileup --min-var-freq ${minvarfreq} --p-value 95e-02 --min-coverage 100 --output-vcf 1 > ${dataset_id}.varscan.cns.vcf
     bgzip ${dataset_id}.varscan.cns.vcf
     tabix -p vcf ${dataset_id}.varscan.cns.vcf.gz
@@ -553,7 +535,7 @@ process HIVVariantCallingBCFtools {
 
 
     input:
-    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAMBCFtools.join(HIVAssemblyVariantsBCFtools, by: [0,1]).combine(MinVarFreqBCFtools)
+    set dataset_id, project, file(bam), file(assembly), minvarfreq from HIVMappingNoDupsBAMBCFtools.join(HIVAssemblyVariantsBCFtools, by: [0,1]).combine(MinVarFreqBCFtools)
 
     output:
     set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariantsBCFtools
@@ -563,7 +545,7 @@ process HIVVariantCallingBCFtools {
     script:
     """
     samtools faidx $assembly
-    bcftools mpileup --redo-BAQ --min-MQ 20 -Ou -f $assembly ${dataset_id}.nodups.bam | bcftools call --ploidy 1 -mv -Ov | bcftools view -q ${minvarfreq}:nref -Oz -o ${dataset_id}.variants.vcf.gz
+    bcftools mpileup --redo-BAQ --min-MQ 20 -Ou -f $assembly ${bam} | bcftools call --ploidy 1 -mv -Ov | bcftools view -q ${minvarfreq}:nref -Oz -o ${dataset_id}.variants.vcf.gz
     zcat ${dataset_id}.variants.vcf.gz > ${dataset_id}.${minvarfreq}.consensus.vcf
     tabix ${dataset_id}.variants.vcf.gz
     bcftools consensus -f $assembly ${dataset_id}.variants.vcf.gz --output ${dataset_id}.${minvarfreq}.minor.fa
@@ -585,7 +567,7 @@ process HIVVariantCallingLoFreq {
     publishDir "${outDir}/${project}/${RunID}/analysis/03-call_variants/vcf", pattern: "${dataset_id}.${minvarfreq}.consensus.vcf", mode: 'copy'
 
     input:
-    set dataset_id, project, file(nodupsbam), file(assembly), minvarfreq from HIVMappingNoDupsBAMLofreq.join(HIVAssemblyVariantsLofreq, by: [0,1]).combine(MinVarFreqLofreq)
+    set dataset_id, project, file(bam), file(assembly), minvarfreq from HIVMappingNoDupsBAMLofreq.join(HIVAssemblyVariantsLofreq, by: [0,1]).combine(MinVarFreqLofreq)
 
     output:
     set dataset_id, project, minvarfreq, file("*.${minvarfreq}.iupac.consensus.fa") into HIVAssemblyWithVariantsLofreq
@@ -595,7 +577,7 @@ process HIVVariantCallingLoFreq {
     script:
     """
     samtools faidx $assembly
-    lofreq call -C 100 --call-indels -D -f $assembly -o - $nodupsbam | bcftools view -i'AF>${minvarfreq}' -Oz -o ${dataset_id}.variants.vcf.gz
+    lofreq call -C 100 --call-indels -D -f $assembly -o - ${bam} | bcftools view -i'AF>${minvarfreq}' -Oz -o ${dataset_id}.variants.vcf.gz
     zcat ${dataset_id}.variants.vcf.gz > ${dataset_id}.${minvarfreq}.consensus.vcf
     tabix ${dataset_id}.variants.vcf.gz
     bcftools consensus -f $assembly ${dataset_id}.variants.vcf.gz --output ${dataset_id}.${minvarfreq}.minor.fa
