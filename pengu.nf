@@ -988,13 +988,34 @@ process typingMykrobeWCM {
     set dataset_id, project, file(forward), file(reverse) from WCMTrimmedReadsTyping
 
     output:
-    set dataset_id, project, file("${dataset_id}.json") into WCMTypingResistanceReport
+    set project, file("${dataset_id}.json") into WCMTypingResistanceReport
     set dataset_id, project, file("${dataset_id}.csv") into WCMTypingCsv
 
     script:
     """
     mykrobe predict ${dataset_id} tb --panel ${mykrobepanel} --seq *.fq.gz --format json --output ${dataset_id}.json
     json_to_tsv.py ${dataset_id}.json | sed 's/\\t/,/g' > ${dataset_id}.csv
+    """
+}
+
+process typingMykrobeSummary {
+    tag { RunID }
+
+    publishDir "${outDir}/${project}/${RunID}/analysis/", pattern: "${shortRunID}_typing_summary.csv", mode: 'copy'
+
+    container "file:///${params.simgdir}/mykrobe-atlas.simg"
+
+    cpus 1
+
+    input:
+    set project, file("*") from WCMTypingResistanceReport.groupTuple(by: 0)
+
+    output:
+    file("${shortRunID}_typing_summary.csv")
+    
+    script:
+    """
+    json2csv.py -o ${shortRunID}_typing_summary.csv -r ${shortRunID} -j *.json
     """
 }
 
