@@ -1757,7 +1757,7 @@ process addClustercodeToDBDIGCD {
 
    output:
    set project, file("${refname}.clustercode_updated.csv") optional true into summarizeUpdatedClustercodes
-   val project, refname into digestDBDump
+   set project, refname into digestDBDump
 
    script:
    """
@@ -1778,14 +1778,14 @@ process dumpClustercodeDatabase {
    cpus 1
 
    input:
-   set project, refname("*") from digestDBDump.groupTuple()
+   set project, refname, file(digestDBconfig) from digestDBDump.groupTuple().combine( DIGCDDBConfigAllClustercodes )
 
    output:
-   set project, file("${RunID}.all_clustercodes.csv") into summarizeAllClustercodes
+   set project, file("${RunID}_all_clustercodes.csv") into summarizeAllClustercodes
 
    script:
    """
-   pengu-ddt -c ${digestDBconfig} dump_all_clustercodes -a "${params.snapperdbconnstring} dbname=${refname}" -oa ${RunID}.all_clustercodes.csv
+   pengu-ddt -c ${digestDBconfig} dump_all_clustercodes -oa ${RunID}_all_clustercodes.csv
    """
 }
 
