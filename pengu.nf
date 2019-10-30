@@ -119,7 +119,7 @@ process TrimReads {
     set dataset_id, project, file(forward), file(reverse) from inputReadsProject
  
     output:
-    set dataset_id, project, file("*_val_1.fq.gz"), file("*_val_2.fq.gz") optional true into TrimmedReadsLength, TrimmedReadsQC, TrimmedReadsHIV, TrimmedReadsFLU, TrimmedReadsWCMTB, TrimmedReadsARG, TrimmedReadsDIGCD
+    set dataset_id, project, file("*_val_1.fq.gz"), file("*_val_2.fq.gz") optional true into TrimmedReadsLength, TrimmedReadsInsert, TrimmedReadsQC, TrimmedReadsHIV, TrimmedReadsFLU, TrimmedReadsWCMTB, TrimmedReadsARG, TrimmedReadsDIGCD
     set project, file("*trimming_report.txt"), file("*_fastqc.{zip,html}") optional true into TrimGaloreResults
 
     script:
@@ -130,6 +130,25 @@ process TrimReads {
         trim_galore --fastqc --paired $forward $reverse
       fi
       """
+}
+
+process calculateInsertSize {
+    tag { dataset_id }
+
+    container "file:///${params.simgdir}/bbtools.simg"
+
+    cpus 2 
+
+    input:
+    set dataset_id, project, file(forward), file(reverse) from TrimmedReadsInsert
+
+    output:
+    set project, file("${dataset_id}.ihist") into insertSizeHitogram
+    
+    script:
+    """
+    bbmerge.sh strict=t reads=1000000 ihist=${dataset_id}.ihist in=${forward} in2=${reverse}
+    """
 }
 
 process MeanTrimmedReadLength {
@@ -255,7 +274,7 @@ process MultiQC {
     publishDir "${outDir}/${project}/${RunID}/qc", mode: 'copy'
 
     input:
-    set project, file("*"), file("*"), file(interop), file(multiqcconf) from TrimGaloreResults.groupTuple(by: 0).map{ [ it[0], it[1].flatten().toList(), it[2].flatten().toList() ] }.combine(InterOpMultiQC).combine(multiQCConfYaml)
+    set project, file("*"), file("*"), file("*"), file(interop), file(multiqcconf) from TrimGaloreResults.groupTuple(by: 0).map{ [ it[0], it[1].flatten().toList(), it[2].flatten().toList() ] }.join(insertSizeHitogram.groupTuple(), by: 0).combine(InterOpMultiQC).combine(multiQCConfYaml)
 
     output:
     file "multiqc_report.html"
@@ -264,8 +283,8 @@ process MultiQC {
     script:
     projectUpper = "${project}".toUpperCase()
     proctag = RunID + "-" + projectUpper
-      """
-      multiqc -m cutadapt -m fastqc -m interop -i "${projectUpper} ${RunID}" -n multiqc_report.html .
+     """
+      multiqc -m bbmap -m cutadapt -m fastqc -m interop -i "${projectUpper} ${RunID}" -n multiqc_report.html .
      """
 }
 
