@@ -171,13 +171,15 @@ params.virulencedb = 'vfdb'
 params.digcdmashref = 'config/digcd/refs_minhash/digcdref.msh'
 
 // Mash distance cutoff - any assemblies further than this distance from the closest reference will not be variant called
-params.digcdmaxmashdist = '0.02'
+params.digcdmaxmashdist = '0.015'
 
 // Path to directory containing snapperdb config files
 params.digcdphenixconf = 'config/digcd/phenix_conf.yaml'
 
 // Path to directory containing snapperdb reference files
 params.digcdrefdir = 'config/digcd/snapperdb-ref'
+params.digcdreflist = ['RT001_BI9','RT001_Liv24','RT002_TL178','RT012_CD630','RT014_TL176','RT015_TL174','RT017_CF5','RT017_M68','RT023_CD305','RT027_CD196','RT078_CDM120','RT106_Liv22']
+
 
 // SnapperDB postgres connstring
 snapperdb_user = "snapperdb"
@@ -185,10 +187,11 @@ snapperdb_host = "192.168.10.58"
 snapperdb_password = "snapperdb"
 params.snapperdbconnstring = "user=${snapperdb_user} host=${snapperdb_host} password=${snapperdb_password}"
 
+// PHEnix minimum coverage
+params.digcdmincoverage = "30"
 
 // DIGEST DB config
 params.digestdbconfig = 'config/digcd/digestDB.dev.conf'
-
 
 // DIGEST pubMLST url
 params.digcdpubmlsturl = 'https://pubmlst.org/data/profiles/cdifficile.txt'

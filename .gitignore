@@ -12,3 +12,6 @@ config/wcmid/mycobacterium_krakendb/**
 
 # Nextflow logs
 .nextflow**
+
+# Workdir (dev mode)
+work/**
