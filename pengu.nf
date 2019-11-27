@@ -1,10 +1,11 @@
 #!/usr/bin/env nextflow
 
-// INPUT READS
-allFastq = "${params.dir}/Data/Intensities/BaseCalls/"
-
 // INPUT RUN FOLDER
 runDir = "${params.dir}"
+
+
+// INPUT READS
+allFastq = "${runDir}/Data/Intensities/BaseCalls/*_R{1,2}_001.fastq.gz"
 
 // MultiQC config file
 multiQCConf = "${params.multiqcconf}"
@@ -13,12 +14,13 @@ multiQCConf = "${params.multiqcconf}"
 centrifugeDB = "${params.centrifugedbpath}"
 
 // SORT READS BY SIZE AND TAKE THE LARGEST ONE - MAKES SURE IT HAS AT LEAST ONE READ
-allFilesBySize = file(allFastq).listFiles().sort{ it.size() }.reverse()
-largestFile = allFilesBySize[0]
+//allFilesBySize = file(allFastq).listFiles().sort{ it.size() }.reverse()
+//largestFile = allFilesBySize[0]
 
 // THIS IS HORRIBLE BUT IT WORKS - CALL BASH SCRIPT TO GET RUNID
-RunIDCmd = "getRunID ${largestFile}"
-RunID = "${RunIDCmd}".execute().text.replaceAll(/\n/, "").toString()
+//RunIDCmd = "getRunID ${largestFile}"
+File runDir = new File("${runDir}")
+RunID = runDir.getName().toString()
 
 // OUTPUT DIR
 
@@ -38,7 +40,7 @@ projects = params.projectlist
 
 // Setup input channels
 // This takes all fastqs and filters so that only those defined in config file (projectlist) get processed
-Channel.fromFilePairs( "${allFastq}/*_R{1,2}_001.fastq.gz" , flat: true)
+Channel.fromFilePairs( "${allFastq}" , flat: true)
        .filter { it[0].tokenize("-")[0].toLowerCase() in projects }
        //.into{ CopyRawFastq; MakeProjectFastq }
        .set{ InputReads }
