@@ -187,7 +187,7 @@ params.snapperdbconnstring = "user=${snapperdb_user} host=${snapperdb_host} pass
 
 
 // DIGEST DB config
-params.digestdbconfig = 'config/digcd/digestDB.conf'
+params.digestdbconfig = 'config/digcd/digestDB.dev.conf'
 
 
 // DIGEST pubMLST url
