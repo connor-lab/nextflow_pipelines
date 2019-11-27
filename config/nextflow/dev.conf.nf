@@ -157,6 +157,21 @@ params.wcmH37Rvref = 'config/wcmid/PHEnix'
 // Path to PHEnix config
 params.wcmphenixconf = 'config/wcmid/PHEnix/phenix_conf.yaml'
 
+// Transfer username
+transferuser = '{{ remote_wcmtb_username }}'
+
+// Path to private SSH key for user/server
+params.wcmtbkey = false
+
+// Username for remote WCMTB server
+params.wcmtbuser = false
+
+// Hostname / IP address of remote WCMTB server
+params.wcmtbserver = false
+
+// Path to upload directory for WCM TB reads 
+params.wcmtbpath = false
+
 
 // ## *** ARGENT PIPELINE CONFIG *** ##
 // DB to use for Abricate resistance
