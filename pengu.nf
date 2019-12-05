@@ -22,16 +22,20 @@ centrifugeDB = "${params.centrifugedbpath}"
 File runDir = new File("${runDir}")
 RunID = runDir.getName().toString()
 
-// OUTPUT DIR
+// Sequencing metadata channel
+Date today = new Date()
+YMD = today.format( "yyyy-MM-dd" )
 
-if ( RunID == "M04531_123_000000000-T3STP" ) {
-    Date today = new Date()
-    YearMonthDay = today.format( "yyyy-MM-dd_HH-mm-ss" )
-    outDir = "${params.testoutdir}/${YearMonthDay}"
+// OUTPUT DIR
+if ( RunID == "000000_M04531_0000_000000000_T3STP" ) {
+    //Date today = new Date()
+    YMD_time = today.format( "yyyy-MM-dd_HH-mm-ss" )
+    outDir = "${params.testoutdir}/${YMD_time}"
      } 
 else {
     outDir = "${params.outdir}"
 }
+
 
 
 // PROJECT ID LIST - these should map to shares and are defined in config file
@@ -231,7 +235,6 @@ process TranslateTaxonomy {
       taxonkit list --indent "" --show-name --ids ${taxID} | head -n1 | cut -d " " -f2- | tr -d '\n'
       """
 }
-
 
 process PrepareMagnitudeSummary {
     tag { project }
@@ -1303,7 +1306,7 @@ process callVirulenceARGENT {
 
     publishDir "${outDir}/${project}/${RunID}/analysis", pattern: "*_virulence_genes.csv", mode: 'copy'
 
-    container "file:///${params.simgdir}/abricate.simg"
+        container "file:///${params.simgdir}/abricate.simg"
 
     input:
     set project, file(assembly) from virAssemblyARGENT.groupTuple(by: 0)
@@ -1320,7 +1323,7 @@ process callVirulenceARGENT {
 
 // Setup DIGCD trimmed reads channel
 
-TrimmedReadsDIGCD.filter { it[1] ==~ 'digcd' }.set{ DIGCDTrimmedReadsRename }
+TrimmedReadsDIGCD.filter { it[1] ==~ 'digcd' }.into{ DIGCDTrimmedReadsRename ; DIGCDTrimmedReadsSeqData }
 
 DIGCDMashRef = Channel.fromPath( "${params.digcdmashref}" )
 
@@ -1328,7 +1331,15 @@ DIGCDPHEnixConf = Channel.fromPath( "${params.digcdphenixconf}")
 
 DIGCDRefDir = Channel.fromPath( "${params.digcdrefdir}", type: 'dir', maxDepth: 1)
 
-Channel.fromPath( "${params.digestdbconfig}" ).into{ DIGCDDBConfigAddSample ; DIGCDDBConfigAddMLST ; DIGCDDBConfigAddClustercode ; DIGCDDBConfigAddDistance; DIGCDDBConfigAllClustercodes }
+Channel.fromPath( "${params.digestdbconfig}" )
+        .into{ DIGCDDBConfigAddSample; 
+            DIGCDDBConfigAddMLST; 
+            DIGCDDBConfigAddClustercode; 
+            DIGCDDBConfigAddDistance; 
+            DIGCDDBConfigAllClustercodes; 
+            DIGCDDBConfigAddSequencing; 
+            DIGCDDBConfigSummaryCsv;
+            DIGCDDBConfigMakeXML}
 
 float maxmashdist = Float.parseFloat(params.digcdmaxmashdist)
 
@@ -1336,7 +1347,8 @@ float mincoverage = Float.parseFloat(params.digcdmincoverage)
 
 Date snapperDBnameDate = new Date()
 snapperDBnameDateTime = snapperDBnameDate.format( "yyMMdd-HHmm" )
- 
+
+
 
 process renameReadsForPHEnix {
     tag { dataset_id }
@@ -1347,6 +1359,7 @@ process renameReadsForPHEnix {
     output:
     set snapperDBname, project, file("${snapperDBname}.R1.fq.gz"), file("${snapperDBname}.R2.fq.gz") into DIGCDTrimmedReadsShovill, DIGCDTrimmedReadsPHEnix
     set snapperDBname, project into DIGCDDBInsertSample
+    set project, snapperDBname into DIGCDMakeXML, DIGCDWGSSummary
 
     script:
     ySplit = dataset_id.replace("DIGCD-", "").replaceAll(/_S\d+_L001$/, "").tokenize("-")
@@ -1360,8 +1373,8 @@ process renameReadsForPHEnix {
     }
     snapperDBname = "${yNumber}_${snapperDBnameDateTime}"
     """
-    mv ${forward} ${snapperDBname}.R1.fq.gz
-    mv ${reverse} ${snapperDBname}.R2.fq.gz
+    cp ${forward} ${snapperDBname}.R1.fq.gz
+    cp ${reverse} ${snapperDBname}.R2.fq.gz
     """
 }
 
@@ -1381,7 +1394,7 @@ process addSamplesToDIGESTDB {
      
    script:
    """
-   echo "y_number,episode_number,original_id" > isolate.csv
+   echo "accession,episode_number,original_id" > isolate.csv
    echo "${snapperDBname},,${snapperDBname}" >> isolate.csv
    pengu-ddt -c ${digestDBconfig} add_isolates --isolate_csv isolate.csv
    """
@@ -1504,6 +1517,7 @@ process addMLSTToDIGESTDB {
    """
 }
 
+
 process mashDistanceToRef {
     tag { snapperDBname }
 
@@ -1531,6 +1545,7 @@ process mashDistanceToRef {
     cat header.csv distance.csv > ${snapperDBname}_distance.csv
     """
 }
+
 
 process addDistanceToDIGESTDB {
    tag { snapperDBname }
@@ -1686,7 +1701,7 @@ process snapperDBCoverageFilter {
         wr = csv.writer(resultFile)
         wr.writerows([mapping_details])
 
-    print(mean_cov, end = '')
+    print(",".join(mapping_details[1:]), end = '')
     """
 }
 
@@ -1713,8 +1728,9 @@ process digcdSummarizeCoverage {
 Channel.create().set{ snapperDBmincoveragePass }
 Channel.create().set{ snapperDBmincoverageFail }
 
-snapperDBCoverageFilterUnfiltered.choice( snapperDBmincoveragePass, snapperDBmincoverageFail  ){ float cov = Float.parseFloat(it[2])
-                                                                                                       cov >= mincoverage ? 0 : 1 }
+snapperDBCoverageFilterUnfiltered.map{ [ it[0], it[1], it[2].split(",")[0], it[2].split(",")[1]  ] }.into{ snapperDBCoverageFilterUnfiltered1 ; snapperDBCoverageFilterUnfiltered2 }
+
+snapperDBCoverageFilterUnfiltered1.choice( snapperDBmincoveragePass, snapperDBmincoverageFail  ){ float cov = Float.parseFloat(it[2]) ; cov >= mincoverage ? 0 : 1 }
 
 process snapperAddSampleToDBDIGCD {
    tag { snapperDBname }
@@ -1728,12 +1744,12 @@ process snapperAddSampleToDBDIGCD {
    cpus 1
 
    input:
-   set snapperDBname, project, coverage, ref, file(json), file(refdir) from snapperDBmincoveragePass.join(snapperDBAddSampleToDB, by: [0,1]) 
-
+   set snapperDBname, project, coverage, stddev, ref, file(json), file(refdir) from snapperDBmincoveragePass.join(snapperDBAddSampleToDB, by: [0,1]) 
+   
    output:
    set refname, project, snapperDBname into DIGESTDBInsertSample
-   file("${snapperDBname}.snapperdb.log") optional true
-   file("${snapperDBname}.snapperdb.fail.log") optional true
+   set snapperDBname, project, val('PASS'), file("${snapperDBname}.snapperdb.log") optional true into SnapperDBInsertSamplePass
+   set snapperDBname, project, val('FAIL'), file("${snapperDBname}.snapperdb.fail.log") optional true into SnapperDBInsertSampleFail
 
    script:
    refname = ref.take(ref.lastIndexOf('.'))
@@ -1746,6 +1762,41 @@ process snapperAddSampleToDBDIGCD {
    fi	
    """
 }
+
+
+snapperDBCoverageFilterUnfiltered2.join( SnapperDBInsertSamplePass.concat( SnapperDBInsertSampleFail ).map{ it[0..2] }, by: [0,1], remainder: true ).set{ DIGCDAddSequencingDataToDB }
+
+
+
+process addSequencingMetadataToDIGESTDB {
+   tag { snapperDBname }
+
+   container "file:///${params.simgdir}/pengu-ddt.simg"
+
+   cpus 1
+
+   input:
+   set snapperDBname, project, ref_cov_mean, ref_cov_stddev, z_score_PF, file(digestDBconfig) from DIGCDAddSequencingDataToDB.combine(DIGCDDBConfigAddSequencing)
+
+   output:
+
+   script:
+   if( z_score_PF == 'PASS' )
+      """
+      pengu-ddt -c ${digestDBconfig} add_sequencing_metadata -a ${snapperDBname} -r ${RunID} -d ${ref_cov_mean} -s ${ref_cov_stddev} --zscore_pass True
+      """
+   else if( z_score_PF == 'FAIL' )
+      """
+      pengu-ddt -c ${digestDBconfig} add_sequencing_metadata -a ${snapperDBname} -r ${RunID} -d ${ref_cov_mean} -s ${ref_cov_stddev} --zscore_pass False
+      """
+   else if( z_score_PF == null )
+      """
+      pengu-ddt -c ${digestDBconfig} add_sequencing_metadata -a ${snapperDBname} -r ${RunID} -d ${ref_cov_mean} -s ${ref_cov_stddev}
+      """
+   else
+       error "Can't work out if z-score check is PASS or FAIL"
+}
+
 
 process addClustercodeToDBDIGCD {
    tag { refname }
@@ -1807,14 +1858,59 @@ process updatedClustercodeSummaryDIGCD {
 
    output:
    file("${RunID}_updated_clustercodes.csv")
+   val("DUMMY") into sampleNamesDIGESTOutputCsv
+   set project, file("sample_names.txt") into sampleNamesDIGESTMakeXML
 
    script:
    """
    cat *.clustercode_updated.csv | head -n1 > ${RunID}_updated_clustercodes.csv
-   cat *.clustercode_updated.csv | grep -v "y_number" >> ${RunID}_updated_clustercodes.csv
+   cat *.clustercode_updated.csv | grep -v "accession" >> ${RunID}_updated_clustercodes.csv
+   cut -f 1 -d , ${RunID}_updated_clustercodes.csv | grep -v "accession" > sample_names.txt
    """
 }
 
+process WGSSummaryDIGCD {
+   tag { RunID }
+
+   publishDir "${outDir}/${project}/${RunID}/", pattern: "${RunID}.wgs_summary.csv", mode: 'copy'
+
+   container "file:///${params.simgdir}/pengu-ddt.simg"
+
+   cpus 1
+
+   input:
+   set project, val(sampleNames), file(db_config), dummy from DIGCDWGSSummary.groupTuple().combine( DIGCDDBConfigSummaryCsv ).combine( sampleNamesDIGESTOutputCsv )
+   
+   output:
+   set project, file("${RunID}.wgs_summary.csv") 
+
+   script:
+   """
+   echo -e \"${sampleNames.join('\n')}\" >> isolate.csv
+   pengu-ddt -c ${db_config} output_summary_csv -qc -i isolate.csv -oc ${RunID}.wgs_summary.csv
+   """
+}
+
+process DIGCDMakeXMLOutput {
+   tag { snapperDBname }
+
+   publishDir "${outDir}/${project}/${RunID}/LIMS", pattern: "${snapperDBname}.wgs.xml", mode: 'copy'
+
+   container "file:///${params.simgdir}/pengu-ddt.simg"
+
+   cpus 1
+
+   input:
+   set project, snapperDBname, file(db_config), file(sample_names) from DIGCDMakeXML.combine( DIGCDDBConfigMakeXML ).combine( sampleNamesDIGESTMakeXML, by: 0 )
+   
+   output:
+   file("${snapperDBname}.wgs.xml") 
+
+   script:
+   """
+   pengu-ddt -c ${db_config} output_xml -a ${snapperDBname} -ox ${snapperDBname}.wgs.xml
+   """
+}
 
 workflow.onComplete {
 
@@ -1840,4 +1936,3 @@ else {
     sendMail(to: 'matthew.bull@wales.nhs.uk', subject: "PenGU sequencing pipeline complete: FAILURE", body: msg)
 }
 }
-	
