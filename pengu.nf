@@ -1540,8 +1540,10 @@ process mashDistanceToRef {
     """
     echo "#Reference,Query,Distance,P-value,Common kmers" > header.csv
     mash dist ${ref} ${assembly} | sort -k3 | sed 's/\\t/,/g' > distance.csv 
-    head -n1 distance.csv > ${snapperDBname}_closest.csv 
+    head -n1 distance.csv > ${snapperDBname}_closest.csv
+    sleep 1 
     cut -d "," -f1 ${snapperDBname}_closest.csv | tr -d '\\n'
+    sleep 1
     cat header.csv distance.csv > ${snapperDBname}_distance.csv
     """
 }
