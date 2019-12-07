@@ -102,7 +102,8 @@ process BackupRunDirectory {
     script:
     miseqID = "${runDir}".tokenize("_")[1]
     """
-    rsync -avL ${runDir} ${backupUser}@${backupHost}:${backupPath}/${miseqID}/
+    tar -czhf ${runDir}.tgz ${runDir}
+    rsync -av ${runDir}.tgz ${backupUser}@${backupHost}:${backupPath}/${miseqID}/
     """
 }
 
